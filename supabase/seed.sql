@@ -1,0 +1,59 @@
+-- ============================================================
+-- 本文件由 scripts/csv-to-sql.ts 自动生成，请不要手动修改。
+-- 重新生成：npm run import:words
+-- 单词数量：40
+--
+-- 用法：把本文件全部内容粘贴到 Supabase 的 SQL Editor 里执行。
+-- 重复执行是安全的：同一个单词会更新，不会重复插入。
+-- ============================================================
+
+insert into public.words
+  (word, phonetic, part_of_speech, meaning, example, example_translation, difficulty)
+values
+  ('abandon', '/əˈbændən/', 'vt.', '放弃；抛弃', 'Many researchers refuse to abandon the traditional theory despite growing evidence against it.', '尽管有越来越多的证据与之相悖，许多研究者仍拒绝放弃这一传统理论。', 2),
+  ('abstract', '/ˈæbstrækt/', 'adj./n.', '抽象的；摘要', 'The abstract of the paper summarizes the author''s main arguments in fewer than two hundred words.', '这篇论文的摘要用不到两百个词概括了作者的主要论点。', 3),
+  ('accelerate', '/əkˈseləreɪt/', 'v.', '加速；促进', 'Government investment in clean energy is expected to accelerate the transition away from fossil fuels.', '政府对清洁能源的投资有望加速摆脱化石燃料的转变。', 3),
+  ('acknowledge', '/əkˈnɒlɪdʒ/', 'vt.', '承认；致谢', 'Most economists acknowledge that the labour market has changed profoundly over the past decade.', '大多数经济学家承认，劳动力市场在过去十年里发生了深刻变化。', 2),
+  ('adequate', '/ˈædɪkwət/', 'adj.', '足够的；适当的', 'The current funding is hardly adequate to meet the growing demand for public health care.', '目前的资金几乎不足以满足日益增长的公共医疗需求。', 3),
+  ('advocate', '/ˈædvəkeɪt/', 'vt./n.', '提倡；拥护者', 'Some scholars advocate a more flexible approach to the regulation of emerging technologies.', '一些学者主张对新兴技术的监管采取更灵活的方式。', 3),
+  ('ambiguous', '/æmˈbɪɡjuəs/', 'adj.', '模棱两可的；含糊的', 'The wording of the contract is so ambiguous that both parties claim it supports their position.', '合同的措辞如此含糊，以至于双方都声称它支持自己的立场。', 4),
+  ('anticipate', '/ænˈtɪsɪpeɪt/', 'vt.', '预料；期望', 'Few analysts could anticipate the speed at which consumer habits would shift online.', '很少有分析人士能预料到消费习惯转向线上的速度。', 3),
+  ('apparent', '/əˈpærənt/', 'adj.', '明显的；表面上的', 'It soon became apparent that the policy had produced effects quite different from those intended.', '很快就显而易见，这项政策产生的效果与预期大不相同。', 3),
+  ('assess', '/əˈses/', 'vt.', '评估；估价', 'It is difficult to assess the long-term impact of social media on adolescent mental health.', '很难评估社交媒体对青少年心理健康的长期影响。', 2),
+  ('authentic', '/ɔːˈθentɪk/', 'adj.', '真正的；可靠的', 'Readers increasingly doubt whether the stories circulated on social media are authentic.', '读者越来越怀疑社交媒体上流传的故事是否真实。', 4),
+  ('bureaucracy', '/bjʊəˈrɒkrəsi/', 'n.', '官僚机构；官僚主义', 'Excessive bureaucracy often delays the approval of research projects that deserve urgent support.', '过多的官僚程序常常延误那些亟待支持的研究项目的审批。', 4),
+  ('coherent', '/kəʊˈhɪərənt/', 'adj.', '连贯的；条理清楚的', 'A convincing essay must present a coherent argument rather than a collection of isolated facts.', '一篇有说服力的文章必须提出连贯的论证，而不是罗列孤立的事实。', 4),
+  ('compensate', '/ˈkɒmpenseɪt/', 'v.', '补偿；弥补', 'Employers may compensate workers for long hours with higher wages and extra holidays.', '雇主可能用更高的工资和额外的假期来补偿员工长时间的劳动。', 3),
+  ('comprehensive', '/ˌkɒmprɪˈhensɪv/', 'adj.', '全面的；综合的', 'The report offers a comprehensive review of the reforms carried out over the past five years.', '这份报告对过去五年所实施的改革做了全面评述。', 3),
+  ('consensus', '/kənˈsensəs/', 'n.', '共识；一致意见', 'There is now a broad consensus among scientists that urgent action on climate is necessary.', '科学家们现在普遍认为，就气候问题采取紧急行动是必要的。', 4),
+  ('constraint', '/kənˈstreɪnt/', 'n.', '限制；约束', 'Limited public budgets remain the biggest constraint on efforts to expand higher education.', '有限的公共预算仍是各方努力扩大高等教育的最大制约因素。', 3),
+  ('contradict', '/ˌkɒntrəˈdɪkt/', 'vt.', '反驳；与…相矛盾', 'These findings contradict the widely held assumption that economic growth always reduces inequality.', '这些发现与经济增长总能减少不平等这一普遍看法相矛盾。', 3),
+  ('correlation', '/ˌkɒrəˈleɪʃn/', 'n.', '相关性；关联', 'Researchers found a strong correlation between sleep quality and academic performance among teenagers.', '研究人员发现，青少年的睡眠质量与学业成绩之间存在很强的相关性。', 4),
+  ('deteriorate', '/dɪˈtɪəriəreɪt/', 'vi.', '恶化；变坏', 'Working conditions in the factory continued to deteriorate despite repeated government inspections.', '尽管政府多次检查，工厂的工作条件仍在继续恶化。', 4),
+  ('dilemma', '/dɪˈlemə/', 'n.', '困境；两难选择', 'Policymakers face a dilemma between protecting personal privacy and improving public security.', '决策者面临一个两难困境，既要保护个人隐私又要改善公共安全。', 3),
+  ('diminish', '/dɪˈmɪnɪʃ/', 'v.', '减少；削弱', 'The influence of traditional newspapers continues to diminish as more readers move online.', '随着更多读者转向网络，传统报纸的影响力持续减弱。', 3),
+  ('discrepancy', '/dɪsˈkrepənsi/', 'n.', '差异；不一致', 'A striking discrepancy exists between what companies promise and what they actually deliver.', '企业所承诺的与实际交付的内容之间存在显著差异。', 5),
+  ('empirical', '/ɪmˈpɪrɪkl/', 'adj.', '经验的；实证的', 'The theory sounds plausible but still lacks empirical evidence from large-scale experiments.', '这一理论听起来合理，但仍缺乏来自大规模实验的实证证据。', 5),
+  ('enhance', '/ɪnˈhɑːns/', 'vt.', '提高；增强', 'Regular physical exercise can greatly enhance both physical fitness and mental well-being.', '经常进行体育锻炼既能大大增强体质，也有益于心理健康。', 2),
+  ('exaggerate', '/ɪɡˈzædʒəreɪt/', 'v.', '夸大；夸张', 'The media tend to exaggerate the risks of new technologies in order to attract readers.', '媒体往往夸大新技术的风险，以吸引读者。', 3),
+  ('explicit', '/ɪkˈsplɪsɪt/', 'adj.', '明确的；清楚的', 'The regulations make explicit what kinds of personal data companies may collect.', '这些法规明确规定了企业可以收集哪些类型的个人数据。', 3),
+  ('feasible', '/ˈfiːzəbl/', 'adj.', '可行的；行得通的', 'It is technically feasible to replace coal with renewable energy within two decades.', '在二十年内用可再生能源取代煤炭在技术上是可行的。', 4),
+  ('fluctuate', '/ˈflʌktʃueɪt/', 'vi.', '波动；起伏', 'Oil prices fluctuate sharply in response to political events and changes in demand.', '油价会因政治事件和需求变化而剧烈波动。', 4),
+  ('hypothesis', '/haɪˈpɒθəsɪs/', 'n.', '假设；假说', 'The hypothesis was rejected after repeated experiments failed to produce the expected results.', '在多次实验未能产生预期结果后，该假设被否定了。', 4),
+  ('implement', '/ˈɪmplɪment/', 'vt.', '实施；执行', 'The government plans to implement the new tax policy at the beginning of next year.', '政府计划在明年初实施新的税收政策。', 3),
+  ('incentive', '/ɪnˈsentɪv/', 'n.', '激励；动机', 'Tax reductions provide a powerful incentive for firms to invest in research and development.', '减税为企业投资研发提供了强有力的激励。', 3),
+  ('inevitable', '/ɪnˈevɪtəbl/', 'adj.', '不可避免的；必然的', 'A certain degree of unemployment seems inevitable in a rapidly changing modern economy.', '在快速变化的现代经济中，一定程度的失业似乎不可避免。', 3),
+  ('infrastructure', '/ˈɪnfrəstrʌktʃə/', 'n.', '基础设施', 'Investment in rural infrastructure has greatly improved access to markets for local farmers.', '对农村基础设施的投资大大改善了当地农民进入市场的条件。', 3),
+  ('integrate', '/ˈɪntɪɡreɪt/', 'v.', '整合；使融入', 'Schools should integrate digital tools into teaching rather than treat them as a separate subject.', '学校应把数字工具融入教学，而不是把它当作一门单独的科目。', 3),
+  ('legitimate', '/lɪˈdʒɪtɪmət/', 'adj.', '合法的；合理的', 'Citizens have a legitimate right to know how public money is spent.', '公民有合法权利知道公共资金是如何花掉的。', 4),
+  ('mitigate', '/ˈmɪtɪɡeɪt/', 'vt.', '减轻；缓和', 'Planting trees can partly mitigate the effects of carbon emissions in urban areas.', '植树可以在一定程度上减轻城市地区碳排放的影响。', 5),
+  ('perceive', '/pəˈsiːv/', 'vt.', '察觉；认为', 'Consumers often perceive a higher price as a reliable sign of better quality.', '消费者常常把更高的价格视为质量更好的可靠标志。', 3),
+  ('phenomenon', '/fəˈnɒmɪnən/', 'n.', '现象', 'Urbanisation is a global phenomenon that has reshaped family life in many countries.', '城镇化是一种全球现象，它重塑了许多国家的家庭生活。', 3),
+  ('prevalent', '/ˈprevələnt/', 'adj.', '普遍的；流行的', 'The belief that hard work guarantees success is still prevalent in many societies.', '努力工作就能保证成功这一观念，在许多社会仍然普遍。', 4)
+on conflict (word) do update set
+  phonetic            = excluded.phonetic,
+  part_of_speech      = excluded.part_of_speech,
+  meaning             = excluded.meaning,
+  example             = excluded.example,
+  example_translation = excluded.example_translation,
+  difficulty          = excluded.difficulty;
