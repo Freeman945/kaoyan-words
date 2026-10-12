@@ -30,7 +30,8 @@ npm run dev            # 启动开发服务器 → http://localhost:3000
 其他命令：
 
 ```bash
-npm test               # 跑全部自动化测试（算法 / 登录提示 / 数据库安全策略）
+npm test               # 跑全部自动化测试（118 个用例）
+                       #   算法 46 · 统计 26 · 界面渲染 13 · 数据库安全 33
 npm run build          # 生产构建（上线前跑一遍，会检查类型错误）
 npm run lint           # 代码规范检查
 npm run import:words   # 把 data/words-seed.csv 转成 supabase/seed.sql

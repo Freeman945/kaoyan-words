@@ -9,6 +9,7 @@
  *   - 正式的背单词页面传进来一个 Server Action（真正写进 Supabase）
  * 组件本身不用改一行。这样「界面逻辑」和「数据存储」就解耦了。
  */
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RatingButtons } from "@/components/RatingButtons";
 import { WordCard } from "@/components/WordCard";
@@ -18,12 +19,19 @@ import {
   scheduleNextReview,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
-import { RATING_LABELS, type ReviewRating, type SaveReviewResult, type Word } from "@/types";
+import {
+  RATING_LABELS,
+  type ReviewRating,
+  type SaveReviewResult,
+  type Word,
+} from "@/types";
 
 /** 一条学习项：一个单词 + 你当前对它的进度 */
 export type StudyItem = {
   word: Word;
   progress: ReviewInput;
+  /** 这是本轮的新词（true）还是到期的复习词（false） */
+  isNew?: boolean;
 };
 
 type StudySessionProps = {
@@ -102,29 +110,54 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   // 全部背完时的总结页
   if (finished) {
+    const newCount = items.filter((item) => item.isNew === true).length;
+    const reviewCount = items.length - newCount;
+
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
         <p className="text-2xl font-bold text-slate-900">🎉 这一轮背完了</p>
-        <p className="mt-2 text-slate-600">
-          本轮共复习 <span className="font-semibold">{answeredCount}</span> 个单词。
+
+        <div className="mt-6 flex justify-center gap-8">
+          <div>
+            <p className="text-3xl font-bold text-slate-900">{reviewCount}</p>
+            <p className="mt-1 text-xs text-slate-500">复习旧词</p>
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-slate-900">{newCount}</p>
+            <p className="mt-1 text-xs text-slate-500">学习新词</p>
+          </div>
+        </div>
+
+        <p className="mt-6 text-sm text-slate-500">
+          这些词的复习时间已经排好了，明天回来会先复习到期的。
         </p>
-        {feedback !== null && (
-          <p className="mt-4 text-sm text-slate-500">最后一条：{feedback}</p>
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            setIndex(0);
-            setRevealed(false);
-            setFinished(false);
-            setAnsweredCount(0);
-            setFeedback(null);
-          }}
-          className="mt-6 rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
-        >
-          再来一轮
-        </button>
-        <p className="mt-3 text-xs text-slate-400">
+
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <Link
+            href="/"
+            className={
+              "w-full max-w-xs rounded-lg bg-slate-900 px-5 py-3 text-sm font-medium text-white " +
+              "transition hover:bg-slate-700"
+            }
+          >
+            返回首页看统计
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              setIndex(0);
+              setRevealed(false);
+              setFinished(false);
+              setAnsweredCount(0);
+              setFeedback(null);
+            }}
+            className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
+          >
+            再来一轮（进度保留）
+          </button>
+        </div>
+
+        <p className="mt-4 text-xs text-slate-400">
           再来一轮时进度会保留，所以你会看到「认识」的间隔从 3 天慢慢变成
           7 天、14 天 —— 这就是间隔复习在起作用。
         </p>
@@ -198,11 +231,11 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     }
   }
 
-  // 顶部进度条
   const progressPercent = Math.round((index / items.length) * 100);
 
   return (
     <div className="space-y-4">
+      {/* ---- 顶部进度 ---- */}
       <div>
         <div className="flex items-center justify-between text-xs text-slate-500">
           <span>
@@ -210,7 +243,15 @@ export function StudySession({ items, onRate }: StudySessionProps) {
           </span>
           <span>已作答 {answeredCount} 个</span>
         </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+
+        <div
+          role="progressbar"
+          aria-label="本轮学习进度"
+          aria-valuenow={index}
+          aria-valuemin={0}
+          aria-valuemax={items.length}
+          className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+        >
           <div
             className="h-full rounded-full bg-slate-900 transition-all"
             style={{ width: `${progressPercent}%` }}
@@ -222,6 +263,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         word={currentItem.word}
         revealed={revealed}
         onReveal={() => setRevealed(true)}
+        isNew={currentItem.isNew}
       />
 
       {revealed && (
@@ -232,9 +274,21 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         />
       )}
 
-      {feedback !== null && (
-        <p className="text-center text-sm text-slate-500">{feedback}</p>
-      )}
+      {/*
+        aria-live="polite" 让读屏软件在内容变化时朗读出来，
+        不会像 role="alert" 那样粗暴打断。
+        min-h 是为了固定这一块的高度，避免出现提示时页面跳动。
+      */}
+      <div
+        aria-live="polite"
+        className="min-h-[20px] text-center text-sm"
+      >
+        {isSaving ? (
+          <span className="text-slate-400">保存中…</span>
+        ) : feedback !== null ? (
+          <span className="text-slate-500">{feedback}</span>
+        ) : null}
+      </div>
 
       {error !== null && (
         <p

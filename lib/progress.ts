@@ -153,7 +153,7 @@ export async function countNewWordsAvailable(userId: string): Promise<number> {
  * 组装今天这一轮要背的队列：先复习到期的，再补上新词。
  */
 export async function getStudyQueue(userId: string): Promise<{
-  entries: StudyQueueEntry[];
+  entries: Array<StudyQueueEntry & { isNew: boolean }>;
   reviewCount: number;
   newWordCount: number;
 }> {
@@ -168,7 +168,13 @@ export async function getStudyQueue(userId: string): Promise<{
   const newEntries = await getNewEntries(plan.newWordCount);
 
   return {
-    entries: [...dueEntries, ...newEntries],
+    // 给每一项标上「这是新词还是复习词」，界面据此显示角标。
+    // 特意在这里标记，而不是让页面按排列顺序去猜 ——
+    // 万一以后调整了顺序，界面上的角标也不会悄悄变错。
+    entries: [
+      ...dueEntries.map((entry) => ({ ...entry, isNew: false })),
+      ...newEntries.map((entry) => ({ ...entry, isNew: true })),
+    ],
     reviewCount: dueEntries.length,
     newWordCount: newEntries.length,
   };

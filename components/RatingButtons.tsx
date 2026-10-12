@@ -55,7 +55,7 @@ export function RatingButtons({
   hints = {},
 }: RatingButtonsProps) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
       {BUTTON_CONFIG.map((button) => (
         <button
           key={button.rating}
@@ -63,19 +63,32 @@ export function RatingButtons({
           disabled={disabled}
           onClick={() => onRate(button.rating)}
           className={
-            "flex flex-col items-center gap-1 rounded-xl border px-3 py-4 text-sm font-medium " +
-            "transition focus-visible:ring-2 focus-visible:outline-none " +
+            // 手机上按钮更高一些，方便拇指点击
+            "flex min-h-[72px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-3 " +
+            "text-sm font-medium transition focus-visible:ring-2 focus-visible:outline-none " +
             "disabled:cursor-not-allowed disabled:opacity-50 " +
             button.className
           }
         >
           <span>{button.label}</span>
+
           {hints[button.rating] !== undefined && (
             <span className="text-xs font-normal opacity-70">
               {hints[button.rating]}
             </span>
           )}
-          <span className="text-[10px] opacity-50">按 {button.keyboardKey}</span>
+
+          {/*
+            键盘提示只在有实体键盘的设备上显示。
+            手机上显示「按 1」只会让人困惑（而且这个空间更该留给主文案）。
+            aria-hidden 是为了让读屏软件跳过它 —— 它只是给眼睛看的装饰。
+          */}
+          <span
+            aria-hidden="true"
+            className="hidden text-[10px] opacity-50 sm:block"
+          >
+            按 {button.keyboardKey}
+          </span>
         </button>
       ))}
     </div>

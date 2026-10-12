@@ -45,6 +45,8 @@ export default async function StudyPage() {
     items = queue.entries.map((entry) => ({
       word: entry.word,
       progress: entry.progress,
+      // 界面会据此在单词卡上显示「新词」或「复习」角标
+      isNew: entry.isNew,
     }));
   } catch (cause) {
     // 最常见的原因：还没在 Supabase 里执行 supabase/schema.sql

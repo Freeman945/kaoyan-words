@@ -33,8 +33,10 @@ export default function PreviewStudyPage() {
   try {
     items = loadSeedWords().map((word) => ({
       word,
-      // 预览时把所有单词都当成「从没学过」的新词
+      // 预览时把所有单词都当成「从没学过」的新词，所以角标一律是「新词」。
+      // 正式页面里，到期的旧词会显示成「复习」。
       progress: createInitialProgress(),
+      isNew: true,
     }));
   } catch (cause) {
     loadError = cause instanceof Error ? cause.message : String(cause);

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test \"lib/**/*.test.ts\" \"supabase/**/*.test.ts\"",
+    "test": "tsx --test \"lib/**/*.test.ts\" \"supabase/**/*.test.ts\" \"components/**/*.test.tsx\"",
     "import:words": "tsx scripts/csv-to-sql.ts"
   },
   "dependencies": {
