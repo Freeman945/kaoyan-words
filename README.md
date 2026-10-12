@@ -1,34 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 考研英语背单词
 
-## Getting Started
+一个为自己长期使用的个性化考研英语背单词网站。目标：每天能真正用起来，学习进度永久保存在云端，换电脑、换手机、退出登录都不会丢。
 
-First, run the development server:
+> 面向 2027 年 12 月考研。英语是薄弱科目，所以这个项目的重点是**长期坚持**和**复习安排**，不是花哨的界面。
+
+## 技术栈
+
+| 用途 | 技术 | 说明 |
+| --- | --- | --- |
+| 前端框架 | Next.js 16 (App Router) | 一个框架同时管页面和服务器接口 |
+| 语言 | TypeScript | 给 JavaScript 加类型，写错立刻报错 |
+| UI 库 | React 19 | 负责页面渲染和交互 |
+| 样式 | Tailwind CSS 4 | 用 class 名直接写样式，不用单独写 CSS 文件 |
+| 数据库 | Supabase (PostgreSQL) | 云端数据库，存单词和学习进度 |
+| 登录认证 | Supabase Auth | 邮箱注册 / 登录，不用自己写密码逻辑 |
+| 部署 | Vercel | 免费托管，推送代码自动上线 |
+| 版本管理 | Git / GitHub | 记录每次改动，改坏了可以回退 |
+
+刻意**没有**使用 Redis、Docker、微服务等复杂技术 —— 对这个项目没有必要。
+
+## 本地运行
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install     # 安装依赖（第一次需要，装完就不用再装）
+npm run dev     # 启动开发服务器
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+然后浏览器打开 http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+其他命令：
 
-## Learn More
+```bash
+npm run build   # 生产构建（检查代码有没有错误，上线前跑一遍）
+npm run start   # 本地运行生产版本
+npm run lint    # 代码规范检查
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 目录结构
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+app/                 页面目录。每个文件夹 = 一个网址
+  layout.tsx         全站最外层骨架（所有页面都套在这里面）
+  page.tsx           首页 = 网址 /
+  globals.css        全局样式，引入 Tailwind
+components/          可复用的 UI 组件（阶段 3 开始使用）
+lib/                 业务逻辑 + 数据库操作（登入、复习算法等）
+types/               TypeScript 类型定义（描述数据长什么样）
+data/                单词数据、CSV 词库文件
+proxy.ts             每次请求都会先经过这里（用于刷新登录状态）
+.env.local           私密配置（数据库地址、密钥），不进 Git
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**分工原则**：`app/` 只管“页面长什么样”，`lib/` 只管“数据和规则怎么处理”。这样以后改复习算法只需要动 `lib/spaced-repetition.ts`，不用碰页面代码。
 
-## Deploy on Vercel
+## 开发阶段
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- [x] **阶段 1** 创建 Next.js + TypeScript + Tailwind 项目，能正常启动
+- [ ] **阶段 2** 接入 Supabase，建立数据库连接
+- [ ] **阶段 3** 实现注册、登录、退出，刷新页面登录状态不丢
+- [ ] **阶段 4** 建立 `words` 表，插入测试单词，网页能从数据库读单词
+- [ ] **阶段 5** 建立 `user_word_progress` 表，点击「认识 / 模糊 / 不认识」保存到数据库
+- [ ] **阶段 6** 验证持久化：学习几个词 → 退出 → 重新登录 → 进度还在
+- [ ] **阶段 7** 实现间隔复习算法，自动生成今日复习单词
+- [ ] **阶段 8** 制作用于统计的 Dashboard
+- [ ] **阶段 9** 优化 UI（简洁、适合长时间学习）
+- [ ] **阶段 10** 部署到 Vercel，可通过公网访问
+- [ ] **后续** 接入 AI：生成例句、近义词辨析、错词测试、薄弱词总结
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 数据安全原则
+
+1. 核心学习进度**必须存在 Supabase 数据库**，不能只放在浏览器 localStorage 里。
+2. 每个用户只能读写自己的学习记录 —— 靠 Supabase 的 Row Level Security（行级安全策略）在数据库层面强制保证，而不是靠前端代码自觉。
+3. API Key、数据库密钥写在 `.env.local`，这个文件不会提交到 Git。AI 接口一律在服务器端调用，密钥不进浏览器。

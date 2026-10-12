@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 但示例文件要提交，方便以后换电脑时知道需要配置哪些变量
+!.env.example
 
 # vercel
 .vercel
