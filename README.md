@@ -86,9 +86,10 @@ lib/                     业务逻辑
   supabase/proxy.ts      会话刷新 + 访问控制
 proxy.ts                 每个请求最先经过这里（Next 16 的 middleware）
 types/index.ts           数据类型定义
+types/database.ts        数据库表结构类型：让 TypeScript 校验每条查询
 data/words-seed.csv      测试词库（40 个考研核心词汇）
 scripts/csv-to-sql.ts    CSV 词库 → SQL 导入脚本
-supabase/schema.sql      建表 + 行级安全策略（RLS）
+supabase/schema.sql      建表 + 行级安全策略（RLS）+ 取新词的函数
 supabase/seed.sql        由脚本生成的单词导入 SQL
 supabase/schema.test.ts  用本地 Postgres 验证 RLS 真的能隔离用户数据
 supabase/supabase-shim.sql  测试用的 Supabase 环境替身
@@ -96,6 +97,11 @@ supabase/supabase-shim.sql  测试用的 Supabase 环境替身
 ```
 
 **分工原则**：`app/` 只管「页面长什么样」，`lib/` 只管「数据和规则怎么处理」。这样以后改复习算法只需要动 `lib/spaced-repetition.ts`，不用碰页面代码。
+
+`types/database.ts` 值得单独说一句：它把三张表的字段告诉了 TypeScript，
+于是**列名写错、表名写错、关联查询名写错、参数名写错都会在编译时报错**，
+而不是等到运行时页面崩掉。改完代码跑一次 `npx tsc --noEmit` 就能发现。
+（正式项目里这个文件可以用 `npx supabase gen types typescript` 自动生成。）
 
 ## 数据库配置（一次性）
 

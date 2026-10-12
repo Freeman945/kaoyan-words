@@ -13,6 +13,10 @@
  *
  * 2. 就算第 1 条哪天写错了，数据库的行级安全策略（RLS）还会再拦一次。
  *    这就是「纵深防御」——不把安全押在单一一处。
+ *
+ * 另外注意：这里没有任何 `as` 强制类型转换。因为 types/database.ts 已经把
+ * 表结构告诉了 TypeScript，所以下面每个查询的返回结果都是自动推断出来的，
+ * 列名写错会直接编译不过。
  */
 import {
   createInitialProgress,
@@ -24,8 +28,6 @@ import {
   DEFAULT_TIME_ZONE,
   summarizeProgress,
   type ProgressStats,
-  type ProgressSummary,
-  type ReviewLogSummary,
 } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 import type { ReviewRating, Word } from "@/types";
@@ -75,7 +77,9 @@ export async function getDueEntries(
 
   const { data, error } = await supabase
     .from("user_word_progress")
-    // 一次查询把进度和单词一起取回来（PostgREST 会自动根据外键关联）
+    // 一次查询把进度和单词一起取回来：words(*) 是 PostgREST 的关联语法，
+    // 它会根据外键自动把对应的单词行嵌进来。
+    // 这种写法能不能被认识，靠的就是 types/database.ts 里声明的 Relationships。
     .select("*, words(*)")
     .eq("user_id", userId)
     .lte("next_review_time", new Date().toISOString())
@@ -86,19 +90,16 @@ export async function getDueEntries(
     throw new Error(`读取今日复习队列失败：${error.message}`);
   }
 
-  return (data ?? []).map((row) => {
-    const record = row as Record<string, unknown> & ReviewInput;
-    return {
-      word: record.words as Word,
-      progress: {
-        familiarity: record.familiarity,
-        consecutive_correct: record.consecutive_correct,
-        review_count: record.review_count,
-        correct_count: record.correct_count,
-        wrong_count: record.wrong_count,
-      },
-    };
-  });
+  return (data ?? []).map((row) => ({
+    word: row.words,
+    progress: {
+      familiarity: row.familiarity,
+      consecutive_correct: row.consecutive_correct,
+      review_count: row.review_count,
+      correct_count: row.correct_count,
+      wrong_count: row.wrong_count,
+    },
+  }));
 }
 
 /**
@@ -123,7 +124,7 @@ export async function getNewEntries(limit: number): Promise<StudyQueueEntry[]> {
     throw new Error(`读取新词失败：${error.message}`);
   }
 
-  return ((data ?? []) as Word[]).map((word) => ({
+  return (data ?? []).map((word: Word) => ({
     word,
     progress: createInitialProgress(),
   }));
@@ -151,9 +152,11 @@ export async function countNewWordsAvailable(userId: string): Promise<number> {
 /**
  * 组装今天这一轮要背的队列：先复习到期的，再补上新词。
  */
-export async function getStudyQueue(
-  userId: string,
-): Promise<{ entries: StudyQueueEntry[]; reviewCount: number; newWordCount: number }> {
+export async function getStudyQueue(userId: string): Promise<{
+  entries: StudyQueueEntry[];
+  reviewCount: number;
+  newWordCount: number;
+}> {
   const dueEntries = await getDueEntries(userId);
   const newWordsAvailable = await countNewWordsAvailable(userId);
 
@@ -281,9 +284,11 @@ export async function getStats(
     throw new Error(`读取学习记录失败：${logsResult.error.message}`);
   }
 
+  // 这里的参数不再需要强制类型转换：上面 select 写明了要哪几列，
+  // TypeScript 已经推出返回的数据正好符合统计函数的要求。
   const stats = summarizeProgress(
-    (progressResult.data ?? []) as ProgressSummary[],
-    (logsResult.data ?? []) as ReviewLogSummary[],
+    progressResult.data ?? [],
+    logsResult.data ?? [],
     new Date(),
     DEFAULT_TIME_ZONE,
   );

@@ -96,6 +96,23 @@ export type WordWithProgress = Word & {
 };
 
 /**
+ * review_logs 表的一行：一次作答的流水记录。
+ *
+ * 这张表只增不改：每次点「不认识/模糊/认识」就插一行。
+ * 它让「最近 7 天每天学了多少」能算准，也为将来的 AI 错词测试留下历史。
+ */
+export type ReviewLogRow = {
+  id: number;
+  user_id: string;
+  word_id: number;
+  /** 这次点了哪个按钮 */
+  rating: ReviewRating;
+  /** 作答之后的掌握程度 */
+  familiarity_after: Familiarity;
+  reviewed_at: string;
+};
+
+/**
  * 一次作答的保存结果。
  *
  * 【为什么用「返回对象」而不是「抛异常」表示失败】

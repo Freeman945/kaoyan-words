@@ -11,6 +11,7 @@
  */
 import { createBrowserClient } from "@supabase/ssr";
 import { getSupabaseKey, getSupabaseUrl } from "@/lib/env";
+import type { Database } from "@/types/database";
 
 /**
  * 创建一个浏览器端客户端。
@@ -19,5 +20,5 @@ import { getSupabaseKey, getSupabaseUrl } from "@/lib/env";
  * 这是 @supabase/ssr 的官方建议：不要把它存到全局变量里复用。
  */
 export function createClient() {
-  return createBrowserClient(getSupabaseUrl(), getSupabaseKey());
+  return createBrowserClient<Database>(getSupabaseUrl(), getSupabaseKey());
 }
