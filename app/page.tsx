@@ -1,89 +1,145 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { SetupNotice } from "@/components/SetupNotice";
 import { SignOutButton } from "@/components/SignOutButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
+import { getStats } from "@/lib/progress";
+import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
+
+export const metadata: Metadata = {
+  title: "考研英语背单词",
+};
 
 /**
- * 这个页面必须「每次请求都重新渲染」，不能被提前生成成静态页面。
+ * 这个页面必须每次请求都重新渲染，不能被提前生成成静态页面。
  *
- * 【为什么必须显式写这一行】
- * Next.js 会偷懒：如果一个页面在构建时不需要读 cookie，它就会把页面
- * 提前生成成一份静态 HTML 重复使用（这样更快）。
- *
- * 正常情况下，首页调用了 cookies()（通过 requireUser），Next.js 就知道
- * 「这页跟具体用户有关」，自动改成动态渲染。
- * 但有个坑：构建时如果还没配 .env.local，上面的 isSupabaseConfigured()
- * 会提前 return，于是 cookies() 从没被调用过 —— Next.js 就会把首页
- * 错误地预生成成静态页，之后即使配好了密钥，也一直显示「数据库还没配置」。
- *
- * 所以这里明确告诉 Next.js：别预生成，每次都实打实地渲染一遍。
- * 涉及登录状态的页面都应该这样写。
+ * 原因：它显示的是「你的」学习统计，每个人、每一刻都不同。
+ * 如果 Next.js 在构建时把它预生成成一份 HTML 重复使用，
+ * 你刷新后看到的会是旧数字。
  */
 export const dynamic = "force-dynamic";
 
-/**
- * 还没配置数据库时显示的引导页。
- *
- * 为什么要单独做这个？
- * 新手最常见的状态是「代码跑起来了，但还没注册 Supabase」。
- * 如果这时直接抛一堆英文报错，人会懵。所以给一条明确的三步指引。
- */
-function SetupNotice() {
+type StatsWithNewWords = ProgressStats & { newWordsAvailable: number };
+
+/** 一个统计数字卡片 */
+function StatCard({
+  label,
+  value,
+  hint,
+  highlight = false,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  highlight?: boolean;
+}) {
   return (
-    <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-bold">考研英语背单词</h1>
-
-      <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-900">
-        <p className="font-semibold">🟡 数据库还没配置</p>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
-          <li>去 supabase.com 免费创建一个项目</li>
-          <li>
-            把 <strong>Project URL</strong> 和 <strong>Publishable key</strong>{" "}
-            填进项目根目录的 <code className="rounded bg-white/70 px-1">.env.local</code>
-          </li>
-          <li>重启开发服务器（Ctrl+C 后重新 npm run dev）</li>
-        </ol>
-        <p className="mt-4 text-sm">
-          需要哪些变量，参考项目根目录的{" "}
-          <code className="rounded bg-white/70 px-1">.env.example</code>。
+    <div
+      className={
+        "rounded-xl border p-4 " +
+        (highlight
+          ? "border-slate-900 bg-slate-900"
+          : "border-slate-200 bg-white")
+      }
+    >
+      <p className={"text-xs " + (highlight ? "text-slate-300" : "text-slate-500")}>
+        {label}
+      </p>
+      <p
+        className={
+          "mt-1 text-2xl font-bold " +
+          (highlight ? "text-white" : "text-slate-900")
+        }
+      >
+        {value}
+      </p>
+      {hint !== undefined && (
+        <p
+          className={
+            "mt-0.5 text-xs " + (highlight ? "text-slate-400" : "text-slate-400")
+          }
+        >
+          {hint}
         </p>
-        <p className="mt-2 text-sm">
-          填好后打开{" "}
-          <Link href="/diagnostics" className="font-medium underline">
-            连接诊断
-          </Link>{" "}
-          确认是否打通。
-        </p>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 text-sm">
-        <p className="font-medium text-slate-900">
-          不想等数据库？先看看背单词界面
-        </p>
-        <p className="mt-2 text-slate-600">
-          这是一个不需要数据库的预览：用本地 40 个测试单词，完整演示
-          「显示释义 → 三选一 → 自动下一个」的流程。按钮下方的
-          「10 分钟后 / 1 天后 / 3 天后」是真实复习算法算出来的结果。
-        </p>
-        <p className="mt-3">
-          <Link
-            href="/preview/study"
-            className="font-medium text-slate-900 underline underline-offset-2"
-          >
-            打开背单词预览 →
-          </Link>
-        </p>
-      </div>
-    </main>
+      )}
+    </div>
   );
 }
 
 /**
- * 首页。
+ * 最近 7 天学习量柱状图。
  *
- * 阶段 3 暂时用来看「登录有没有成功」。阶段 8 会把它换成真正的
- * 学习 Dashboard（今日新词数、待复习数、已掌握数……）。
+ * 没有引入图表库 —— 这个需求用 div 的高度就能表达，
+ * 为了几根柱子装一个几百 KB 的依赖不划算。
  */
+function WeeklyChart({ days }: { days: DailyCount[] }) {
+  const maxCount = Math.max(1, ...days.map((day) => day.count));
+  const maxBarHeight = 88;
+  const todayKey = days[days.length - 1]?.date;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <p className="text-sm font-medium text-slate-900">最近 7 天学习量</p>
+      <p className="mt-0.5 text-xs text-slate-500">按作答次数统计</p>
+
+      <div className="mt-5 flex items-end justify-between gap-2">
+        {days.map((day) => {
+          const isToday = day.date === todayKey;
+          const height =
+            day.count === 0
+              ? 2
+              : Math.max(6, Math.round((day.count / maxCount) * maxBarHeight));
+
+          return (
+            <div key={day.date} className="flex flex-1 flex-col items-center gap-1">
+              <span className="text-[10px] text-slate-400">
+                {day.count > 0 ? day.count : ""}
+              </span>
+              <div
+                className={
+                  "w-full rounded-t " + (isToday ? "bg-slate-900" : "bg-slate-300")
+                }
+                style={{ height: `${height}px` }}
+                title={`${day.date}：${day.count} 次`}
+              />
+              <span
+                className={
+                  "text-[10px] " +
+                  (isToday ? "font-medium text-slate-900" : "text-slate-400")
+                }
+              >
+                {day.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** 读取统计失败时的提示 */
+function StatsError({ message }: { message: string }) {
+  return (
+    <div className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+      <p className="font-medium">读取学习统计失败</p>
+      <pre className="mt-2 whitespace-pre-wrap break-words">{message}</pre>
+      <p className="mt-3">
+        如果提示表不存在，说明还没执行建表语句。请去 Supabase 控制台的 SQL
+        Editor 依次运行{" "}
+        <code className="rounded bg-white/70 px-1">supabase/schema.sql</code> 和{" "}
+        <code className="rounded bg-white/70 px-1">supabase/seed.sql</code>，
+        再回到{" "}
+        <Link href="/diagnostics" className="underline">
+          连接诊断
+        </Link>
+        看看。
+      </p>
+    </div>
+  );
+}
+
 export default async function Home() {
   if (!isSupabaseConfigured()) {
     return <SetupNotice />;
@@ -92,40 +148,86 @@ export default async function Home() {
   // 没登录的话，requireUser() 内部会直接跳转到 /login
   const user = await requireUser();
 
+  let stats: StatsWithNewWords | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    stats = await getStats(user.id);
+  } catch (cause) {
+    errorMessage = cause instanceof Error ? cause.message : "读取统计失败。";
+  }
+
+  // 用和背单词页面同一套函数来算今日任务，
+  // 这样首页显示的「今天要背多少」和点进去看到的数量一定一致。
+  const plan =
+    stats === null
+      ? null
+      : buildDailyPlan({
+          dueCount: stats.dueForReview,
+          newWordsAvailable: stats.newWordsAvailable,
+        });
+
   return (
-    <main className="mx-auto max-w-2xl space-y-6 p-8">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">考研英语背单词</h1>
+    <main className="mx-auto max-w-2xl space-y-6 p-6 sm:p-8">
+      <header className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">考研英语背单词</h1>
+          <p className="mt-0.5 break-all text-xs text-slate-500">
+            {user.email ?? "（未提供邮箱）"}
+          </p>
+        </div>
         <SignOutButton />
-      </div>
+      </header>
 
-      <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-5">
-        <p className="font-semibold text-emerald-900">✅ 登录成功</p>
-        <p className="mt-1 break-all text-sm text-emerald-800">
-          当前账号：{user.email ?? "（未提供邮箱）"}
-        </p>
-        <p className="mt-1 break-all font-mono text-xs text-emerald-700">
-          用户 ID：{user.id}
-        </p>
-      </div>
+      {errorMessage !== null && <StatsError message={errorMessage} />}
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm leading-relaxed text-slate-600">
-        <p className="font-medium text-slate-900">阶段 3：请做这个验证</p>
-        <p className="mt-2">
-          <strong>按 F5 刷新页面，或者关掉标签页重新打开</strong>
-          —— 你应该仍然是登录状态，直接回到这一页。
-        </p>
-        <p className="mt-2">
-          原因是：登录凭证没有存在 JavaScript 能读到的地方，而是存在一个
-          HttpOnly cookie 里，由服务器读取。这既保证了刷新不丢登录，
-          也防止了网页上的恶意脚本偷走你的登录状态。
-        </p>
-        <p className="mt-3">
-          <Link href="/diagnostics" className="underline underline-offset-2">
-            连接诊断
+      {stats !== null && plan !== null && (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard
+              label="今日待复习"
+              value={plan.reviewCount}
+              highlight={plan.reviewCount > 0}
+            />
+            <StatCard
+              label="今日新词"
+              value={plan.newWordCount}
+              hint={`还剩 ${stats.newWordsAvailable} 个没学`}
+            />
+            <StatCard
+              label="已掌握"
+              value={stats.masteredWords}
+              hint={`在学 ${stats.learningWords} 个`}
+            />
+            <StatCard label="学习总词数" value={stats.totalWords} />
+          </div>
+
+          <Link
+            href="/study"
+            className="block rounded-xl bg-slate-900 px-6 py-4 text-center text-base font-medium text-white transition hover:bg-slate-700"
+          >
+            {plan.total > 0
+              ? `开始学习（${plan.total} 个词）`
+              : "今天已经学完啦 · 进去看看"}
           </Link>
-        </p>
-      </div>
+
+          <WeeklyChart days={stats.last7Days} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="今日已作答" value={stats.reviewedToday} hint="次" />
+            <StatCard label="连续学习天数" value={stats.streakDays} hint="天" />
+          </div>
+        </>
+      )}
+
+      <footer className="flex items-center justify-between pt-2 text-xs text-slate-400">
+        <Link href="/diagnostics" className="underline underline-offset-2">
+          连接诊断
+        </Link>
+        <Link href="/preview/study" className="underline underline-offset-2">
+          背单词界面预览（不存数据库）
+        </Link>
+      </footer>
     </main>
   );
 }

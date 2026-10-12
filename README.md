@@ -56,7 +56,9 @@ npm run import:words -- data/kaoyan-5000.csv
 ```
 app/                     页面目录。每个文件夹 = 一个网址
   layout.tsx             全站最外层骨架
-  page.tsx               首页 = 网址 /（学习 Dashboard）
+  page.tsx               首页 = 学习 Dashboard（统计 + 开始学习）
+  study/page.tsx         背单词页（正式版，会保存进度）
+  study/actions.ts       保存作答的 Server Action
   login/page.tsx         登录页
   register/page.tsx      注册页
   diagnostics/page.tsx   连接诊断页（出问题时先看这里）
@@ -65,6 +67,7 @@ app/                     页面目录。每个文件夹 = 一个网址
 components/              可复用的 UI 组件
   AuthForm.tsx           登录与注册共用的表单
   SignOutButton.tsx      退出登录按钮
+  SetupNotice.tsx        「数据库还没配置」的引导页
   WordCard.tsx           单词卡（释义默认隐藏）
   RatingButtons.tsx      三个作答按钮
   StudySession.tsx       背单词核心交互
@@ -76,6 +79,8 @@ lib/                     业务逻辑
   csv.ts                 CSV 解析器
   words.ts               词库读取与列定义
   spaced-repetition.ts   间隔复习算法（本项目的大脑）
+  stats.ts               学习统计（时区处理、连续天数、7 天图表）
+  progress.ts            学习进度的数据库读写
   supabase/client.ts     浏览器端数据库客户端
   supabase/server.ts     服务端数据库客户端
   supabase/proxy.ts      会话刷新 + 访问控制
@@ -168,14 +173,15 @@ Anki、欧路词典也一样）。想彻底藏住，得改成「点显示释义�
 - [x] **阶段 2** Supabase 客户端与环境变量校验（待填密钥实测）
 - [x] **阶段 3** 注册、登录、退出 + 会话保持
 - [x] **阶段 4** 建表 SQL、词库数据、CSV 导入工具
-- [x] **阶段 5** 进度表结构 + RLS 安全策略（27 个数据库测试全部通过）
+- [x] **阶段 5** 进度表结构 + RLS 安全策略 + 流水表
 - [x] **阶段 7（核心）** 间隔复习算法 + 46 个测试
 - [x] **背单词界面** 单词卡 / 三按钮 / 交互会话 + 免数据库预览页
+- [x] **阶段 5（代码）** `/study` 页 + Server Action 写入进度与流水
+- [x] **阶段 8（代码）** Dashboard 统计 + 最近 7 天柱状图 + 连续学习天数
+- [x] **阶段 6（准备）** 用 PGlite 实测 RLS 用户数据隔离（33 个数据库测试）
 - [ ] **阶段 2/4 实测** 填入密钥，把 SQL 执行到真实 Supabase
-- [ ] **阶段 5（接入）** 正式 `/study` 页面 + Server Action 写入进度
-- [ ] **阶段 6** 两个真实账号实测隔离与跨设备持久化
-- [ ] **阶段 7（接入）** 按 `next_review_time` 生成今日复习队列
-- [ ] **阶段 8** 学习统计 Dashboard
+- [ ] **阶段 6（实测）** 两个真实账号验证隔离与跨设备持久化
+- [ ] **阶段 7（接入）** 复习队列已接通，待实测
 - [ ] **阶段 9** 优化 UI
 - [ ] **阶段 10** 部署到 Vercel
 - [ ] **后续** 接入 AI：生成例句、近义词辨析、错词测试、薄弱词总结

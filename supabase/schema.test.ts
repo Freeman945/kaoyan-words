@@ -421,3 +421,69 @@ describe("流水表：能记账，但不能改账", () => {
     await assert.rejects(() => asAnon(() => db.query("select * from public.review_logs")));
   });
 });
+
+// ============================================================
+// 六、取新词的数据库函数
+// ============================================================
+describe("get_new_words：只会返回我还没学过的词", () => {
+  it("A 调用时，不包含 A 学过的 abandon", async () => {
+    const { rows } = await asUser(USER_A, () =>
+      db.query<{ word: string }>("select word from public.get_new_words(10)"),
+    );
+    const words = rows.map((row) => row.word);
+
+    assert.ok(!words.includes("abandon"), "A 学过的词不该再当新词");
+  });
+
+  it("B 学过 coherent，但 A 依然应该把 coherent 看成新词（各人进度互不影响）", async () => {
+    const { rows } = await asUser(USER_A, () =>
+      db.query<{ word: string }>("select word from public.get_new_words(10)"),
+    );
+    const words = rows.map((row) => row.word);
+
+    assert.ok(
+      words.includes("coherent"),
+      "B 学过不等于 A 学过 —— 这是最容易写错的地方",
+    );
+  });
+
+  it("B 调用时，看到的是自己没学过的 abandon", async () => {
+    const { rows } = await asUser(USER_B, () =>
+      db.query<{ word: string }>("select word from public.get_new_words(10)"),
+    );
+    const words = rows.map((row) => row.word);
+
+    assert.ok(words.includes("abandon"));
+    assert.ok(!words.includes("coherent"), "B 学过的词不该再当新词");
+  });
+
+  it("遵守数量上限", async () => {
+    const { rows } = await asUser(USER_A, () =>
+      db.query("select word from public.get_new_words(1)"),
+    );
+    assert.equal(rows.length, 1);
+  });
+
+  it("按难度从低到高排序（先学简单的）", async () => {
+    // 再补一个高难度词，确认排序
+    await db.exec(
+      `insert into public.words (word, meaning, difficulty) values ('ubiquitous', '无处不在的', 5)`,
+    );
+
+    const { rows } = await asUser(USER_A, () =>
+      db.query<{ word: string; difficulty: number }>(
+        "select word, difficulty from public.get_new_words(10)",
+      ),
+    );
+
+    const difficulties = rows.map((row) => row.difficulty);
+    const sorted = [...difficulties].sort((a, b) => a - b);
+    assert.deepEqual(difficulties, sorted, "应该按难度升序返回");
+  });
+
+  it("未登录访客无权调用", async () => {
+    await assert.rejects(() =>
+      asAnon(() => db.query("select * from public.get_new_words(10)")),
+    );
+  });
+});

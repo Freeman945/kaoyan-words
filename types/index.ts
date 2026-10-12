@@ -94,3 +94,16 @@ export type WordProgressRow = {
 export type WordWithProgress = Word & {
   progress: WordProgressRow | null;
 };
+
+/**
+ * 一次作答的保存结果。
+ *
+ * 【为什么用「返回对象」而不是「抛异常」表示失败】
+ * 保存动作是在服务器上执行的（Server Action），报错信息经过网络传输后
+ * 细节常常丢失，前端只能看到一个笼统的"服务器错误"。
+ * 老老实实把结果当数据传回来，就能把「登录过期了」「数据库表还没建」
+ * 这类具体原因原样显示给用户。
+ */
+export type SaveReviewResult =
+  | { ok: true }
+  | { ok: false; error: string };

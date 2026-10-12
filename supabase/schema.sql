@@ -246,7 +246,48 @@ revoke truncate, references, trigger on public.review_logs from anon, authentica
 
 
 -- ============================================================
--- 四、自检查询（可选）
+-- 四、取新词的函数
+-- ------------------------------------------------------------
+-- 【为什么这件事要交给数据库做，而不是在 JS 里过滤】
+-- 「今天该学哪些新词」= 词库里所有词 − 我已经学过的词。
+--
+-- 看起来很简单，但如果先把「我学过的单词 id」全部拉到 JS 里、
+-- 再拼成一个排除列表去查询，会有两个问题：
+--   1. 学过 2000 个词时，这个排除列表会让请求地址长到几 KB，
+--      而 PostgREST 是用 URL 传参的，有长度上限，可能直接失败；
+--   2. 网络要来回传几千个 id，白白浪费流量和时间。
+--
+-- 写成数据库函数后，这些计算全在数据库内部完成（它有索引），
+-- 只把最终结果传回来。词库从 40 个涨到 5000 个都不受影响。
+--
+-- security invoker 的意思是「按调用者的身份执行」，
+-- 所以行级安全策略依然生效，不会因为这个函数就绕过安全检查。
+-- ============================================================
+create or replace function public.get_new_words(p_limit integer)
+returns setof public.words
+language sql
+stable
+security invoker
+as $$
+  select w.*
+  from public.words w
+  where not exists (
+    select 1
+    from public.user_word_progress p
+    where p.word_id = w.id
+      and p.user_id = auth.uid()
+  )
+  -- 先学简单的，同难度按加入顺序
+  order by w.difficulty, w.id
+  limit p_limit
+$$;
+
+grant execute on function public.get_new_words(integer) to authenticated;
+revoke execute on function public.get_new_words(integer) from anon;
+
+
+-- ============================================================
+-- 五、自检查询（可选）
 -- ============================================================
 -- 跑完上面的语句后，可以单独执行下面这句，确认表都建好了：
 --

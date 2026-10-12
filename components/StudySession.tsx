@@ -18,7 +18,7 @@ import {
   scheduleNextReview,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
-import { RATING_LABELS, type ReviewRating, type Word } from "@/types";
+import { RATING_LABELS, type ReviewRating, type SaveReviewResult, type Word } from "@/types";
 
 /** 一条学习项：一个单词 + 你当前对它的进度 */
 export type StudyItem = {
@@ -30,9 +30,11 @@ type StudySessionProps = {
   items: StudyItem[];
   /**
    * 保存一次作答。
-   * 如果它抛出错误，组件会停在这个词不动 —— 避免「以为背过了，其实没记上」。
+   *
+   * 返回 { ok: false } 时，组件会停在这个词不动 ——
+   * 避免出现「以为背过了、其实没记上」的情况。
    */
-  onRate: (wordId: number, rating: ReviewRating) => Promise<void>;
+  onRate: (wordId: number, rating: ReviewRating) => Promise<SaveReviewResult>;
 };
 
 const RATINGS: ReviewRating[] = ["again", "hard", "good"];
@@ -160,9 +162,16 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     setError(null);
 
     try {
-      await onRate(currentItem.word.id, rating);
-    } catch (cause) {
+      const result = await onRate(currentItem.word.id, rating);
+
       // 保存失败就停在这个词，不要往下走
+      if (!result.ok) {
+        setError(result.error);
+        setIsSaving(false);
+        return;
+      }
+    } catch (cause) {
+      // 断网之类的意外情况，同样停住不动
       setError(
         cause instanceof Error ? cause.message : "保存失败，请检查网络后重试。",
       );
