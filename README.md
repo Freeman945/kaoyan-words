@@ -14,7 +14,7 @@
 | 样式 | Tailwind CSS 4 | 用 class 名直接写样式，不用单独写 CSS 文件 |
 | 数据库 | Supabase (PostgreSQL) | 云端数据库，存单词和学习进度 |
 | 登录认证 | Supabase Auth | 邮箱注册 / 登录，不用自己写密码逻辑 |
-| 测试 | Node.js 内置测试运行器 + tsx | 给复习算法等纯逻辑写自动化测试 |
+| 测试 | Node 内置测试运行器 + tsx + PGlite | 连数据库安全策略都能在本地验证 |
 | 部署 | Vercel | 免费托管，推送代码自动上线 |
 | 版本管理 | Git / GitHub | 记录每次改动，改坏了可以回退 |
 
@@ -30,7 +30,7 @@ npm run dev            # 启动开发服务器 → http://localhost:3000
 其他命令：
 
 ```bash
-npm test               # 跑自动化测试（复习算法 + 登录提示）
+npm test               # 跑全部自动化测试（算法 / 登录提示 / 数据库安全策略）
 npm run build          # 生产构建（上线前跑一遍，会检查类型错误）
 npm run lint           # 代码规范检查
 npm run import:words   # 把 data/words-seed.csv 转成 supabase/seed.sql
@@ -42,6 +42,15 @@ npm run import:words   # 把 data/words-seed.csv 转成 supabase/seed.sql
 npm run import:words -- data/kaoyan-5000.csv
 ```
 
+## 现在就能看的东西
+
+不用等数据库，打开 **http://localhost:3000/preview/study** 就能试背单词：
+显示释义 → 不认识 / 模糊 / 认识 → 自动下一个。按钮下方的「10 分钟后 /
+1 天后 / 3 天后」是真实复习算法算出来的。
+
+连续对同一个词点「认识」，再点「再来一轮」，你会看到间隔从 3 天变成 7 天、
+14 天、30 天 —— 这就是间隔复习在起作用。
+
 ## 目录结构
 
 ```
@@ -51,25 +60,33 @@ app/                     页面目录。每个文件夹 = 一个网址
   login/page.tsx         登录页
   register/page.tsx      注册页
   diagnostics/page.tsx   连接诊断页（出问题时先看这里）
+  preview/study/page.tsx 背单词界面预览（不需要数据库）
   auth/actions.ts        登录 / 注册 / 退出的服务端逻辑
 components/              可复用的 UI 组件
   AuthForm.tsx           登录与注册共用的表单
   SignOutButton.tsx      退出登录按钮
+  WordCard.tsx           单词卡（释义默认隐藏）
+  RatingButtons.tsx      三个作答按钮
+  StudySession.tsx       背单词核心交互
+  PreviewStudySession.tsx 预览外壳
 lib/                     业务逻辑
   env.ts                 读取环境变量，缺配置时给中文提示
   auth.ts                查询当前登录用户 / 强制要求登录
   auth-messages.ts       把 Supabase 英文报错翻译成中文
+  csv.ts                 CSV 解析器
+  words.ts               词库读取与列定义
   spaced-repetition.ts   间隔复习算法（本项目的大脑）
-  spaced-repetition.test.ts  算法的自动化测试
   supabase/client.ts     浏览器端数据库客户端
   supabase/server.ts     服务端数据库客户端
   supabase/proxy.ts      会话刷新 + 访问控制
 proxy.ts                 每个请求最先经过这里（Next 16 的 middleware）
-types/index.ts           数据类型定义（Word / 进度记录 / 掌握程度）
+types/index.ts           数据类型定义
 data/words-seed.csv      测试词库（40 个考研核心词汇）
 scripts/csv-to-sql.ts    CSV 词库 → SQL 导入脚本
 supabase/schema.sql      建表 + 行级安全策略（RLS）
 supabase/seed.sql        由脚本生成的单词导入 SQL
+supabase/schema.test.ts  用本地 Postgres 验证 RLS 真的能隔离用户数据
+supabase/supabase-shim.sql  测试用的 Supabase 环境替身
 .env.local               私密配置（数据库地址、密钥），不进 Git
 ```
 
@@ -83,6 +100,41 @@ supabase/seed.sql        由脚本生成的单词导入 SQL
 4. 再粘贴执行 `supabase/seed.sql`（导入 40 个测试单词）
 5. 重启 `npm run dev`，访问 `/diagnostics` 应显示绿色「连接成功」
 
+## 三张表
+
+| 表 | 存什么 | 谁能读 | 谁能写 |
+| --- | --- | --- | --- |
+| `words` | 单词库（公共数据） | 所有人（含未登录） | 谁都不能，只能在控制台改 |
+| `user_word_progress` | 你对每个词的当前进度 | 只有你自己 | 只有你自己 |
+| `review_logs` | 每一次作答的流水 | 只有你自己 | 只能追加，不能改也不能删 |
+
+`review_logs` 存在的理由：`user_word_progress` 里只有 `last_review_time`，
+它记录的是**最近一次**复习时间。如果你周一背了一次、周三又背一次，周一那次
+就被覆盖了，Dashboard 上「最近 7 天每天学了多少」就算不准。流水表则一笔一笔记下来，
+同时也为将来的 AI 功能（错词测试、薄弱词总结）准备了历史数据。
+
+## 安全策略已经过实测验证
+
+「用户 A 绝对看不到用户 B 的数据」这条规则，**不是靠前端代码自觉，而是在数据库层强制的**。
+而且它已经被真跑过一遍：`supabase/schema.test.ts` 会在本地用 PGlite
+（编译成 WebAssembly 的真实 PostgreSQL）起一个临时数据库，先跑
+`supabase-shim.sql`（Supabase 环境替身），再把真正的 `supabase/schema.sql`
+原封不动执行，然后扮演 A、B、未登录访客三种身份反复试探。
+
+```bash
+npm test
+```
+
+覆盖的关键场景：
+
+- A 查自己的进度只有 1 条；B 也是 1 条，互相看不到
+- A 就算显式写 `where user_id = B的ID`，也只会拿到 0 行
+- A 不能把进度写到 B 名下（`with check` 拦截）
+- A 改不动、删不掉 B 的记录（受影响行数为 0）
+- 未登录访客连进度表都没有访问权限
+- 谁都不能往单词库插数据，也不能 `truncate` 清空它（TRUNCATE 不看 RLS，权限单独收回了）
+- 流水记录只能追加，改不了也删不掉
+
 ## 常见问题
 
 **注册后一直收不到验证邮件？**
@@ -94,6 +146,11 @@ Supabase 免费版自带的邮件服务每小时只能发几封。个人自用�
 先确认你的会话刷新文件叫 `proxy.ts` 而不是 `middleware.ts`。Next.js 16 把
 middleware 改名成了 proxy，网上大部分 Supabase 教程还是旧写法，照抄会导致
 这段代码根本不执行。
+
+**背单词时释义能不能真的藏住？**
+视觉上可以，但数据本身会随页面一起发给浏览器（所有客户端渲染的应用都这样，
+Anki、欧路词典也一样）。想彻底藏住，得改成「点显示释义时才向服务器要答案」，
+那要多一次网络往返，对自用没有必要。
 
 ## 间隔复习规则
 
@@ -107,14 +164,16 @@ middleware 改名成了 proxy，网上大部分 Supabase 教程还是旧写法�
 
 ## 开发阶段
 
-- [x] **阶段 1** Next.js + TypeScript + Tailwind 骨架，能正常启动
-- [x] **阶段 2** 接入 Supabase 客户端与环境变量校验（待填密钥实测）
-- [x] **阶段 3** 注册、登录、退出 + 会话保持（待填密钥实测）
-- [x] **阶段 4** 建表 SQL 与词库数据、CSV 导入工具（待执行到 Supabase）
-- [x] **阶段 5** 进度表结构与 RLS 安全策略（待执行到 Supabase）
-- [x] **阶段 7（核心）** 间隔复习算法 + 31 个自动化测试
-- [ ] **阶段 4/5（接入页面）** 背单词页面、保存学习记录
-- [ ] **阶段 6** 验证持久化：两个账号实测数据隔离
+- [x] **阶段 1** Next.js + TypeScript + Tailwind 骨架
+- [x] **阶段 2** Supabase 客户端与环境变量校验（待填密钥实测）
+- [x] **阶段 3** 注册、登录、退出 + 会话保持
+- [x] **阶段 4** 建表 SQL、词库数据、CSV 导入工具
+- [x] **阶段 5** 进度表结构 + RLS 安全策略（27 个数据库测试全部通过）
+- [x] **阶段 7（核心）** 间隔复习算法 + 46 个测试
+- [x] **背单词界面** 单词卡 / 三按钮 / 交互会话 + 免数据库预览页
+- [ ] **阶段 2/4 实测** 填入密钥，把 SQL 执行到真实 Supabase
+- [ ] **阶段 5（接入）** 正式 `/study` 页面 + Server Action 写入进度
+- [ ] **阶段 6** 两个真实账号实测隔离与跨设备持久化
 - [ ] **阶段 7（接入）** 按 `next_review_time` 生成今日复习队列
 - [ ] **阶段 8** 学习统计 Dashboard
 - [ ] **阶段 9** 优化 UI
@@ -124,5 +183,6 @@ middleware 改名成了 proxy，网上大部分 Supabase 教程还是旧写法�
 ## 数据安全原则
 
 1. 核心学习进度**存在 Supabase 数据库**，不只放在浏览器 localStorage 里。
-2. 每个用户只能读写自己的学习记录 —— 靠 Supabase 的行级安全策略（RLS）在**数据库层**强制保证，而不是靠前端代码自觉。就算有人改了浏览器里的代码，数据库依然会拒绝。
-3. API Key、数据库密钥写在 `.env.local`，这个文件不会提交到 Git。AI 接口一律在服务器端调用，密钥不进浏览器。
+2. 每个用户只能读写自己的学习记录 —— 靠 RLS 在**数据库层**强制保证，而不是靠前端代码自觉。就算有人改了浏览器里的代码，数据库依然会拒绝。
+3. 登录凭证存在 HttpOnly cookie 里，浏览器上的 JavaScript 读不到，防 XSS 窃取。
+4. API Key、数据库密钥写在 `.env.local`，这个文件不会提交到 Git。AI 接口一律在服务器端调用，密钥不进浏览器。

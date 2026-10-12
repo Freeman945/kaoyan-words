@@ -7,6 +7,24 @@
 --
 -- 重复执行是安全的：本文件用了 if not exists / drop policy if exists，
 -- 所以改完再跑一次不会报错，也不会清掉已有数据。
+--
+-- 阅读顺序：每张表都是「先建表 → 再讲它的安全策略」，
+-- 这样一张表的所有规则都集中在一处，不用来回翻。
+-- ============================================================
+
+
+-- ============================================================
+-- 名词解释：RLS（行级安全策略）
+-- ------------------------------------------------------------
+-- Supabase 的数据库可以被浏览器直接访问，而浏览器用的密钥是公开的，
+-- 谁都能拿到。那怎么防止别人读到你的数据？
+-- 靠的就是 RLS：数据库对每一行数据都检查一遍「你是谁、你有没有资格看」。
+--
+-- 关键点：RLS 是数据库层强制执行的，不是靠前端代码自觉。
+-- 就算有人改了浏览器里的代码绕过界面，数据库依然会拒绝。
+--
+-- 开启 RLS 后默认是「全部拒绝」，必须显式写出允许的策略才读得到数据。
+-- 所以下面每条策略都是在「开一个口子」。
 -- ============================================================
 
 
@@ -35,6 +53,27 @@ create table if not exists public.words (
 -- 让「按难度抽新词」这个查询更快（低难度优先学）
 create index if not exists words_difficulty_idx on public.words (difficulty);
 
+alter table public.words enable row level security;
+
+-- 单词释义是公共知识，不是隐私，所以允许未登录用户也能读
+-- （这样连接诊断页在登录前就能验证数据库是否打通）。
+drop policy if exists "单词：所有人可读" on public.words;
+create policy "单词：所有人可读"
+  on public.words
+  for select
+  to anon, authenticated
+  using (true);
+
+-- 注意：这里没有任何 insert / update / delete 策略。
+-- 在 RLS 里「没有策略」= 拒绝。所以任何人都改不了单词库，
+-- 只能由你在 Supabase 控制台手动改。这是故意的。
+
+grant select on public.words to anon, authenticated;
+-- 就算 Supabase 默认给了更多权限，这里也明确收回，只留只读。
+revoke insert, update, delete on public.words from anon, authenticated;
+-- TRUNCATE（清空整张表）不看 RLS，属于另一条路径，所以单独收回。
+revoke truncate, references, trigger on public.words from anon, authenticated;
+
 
 -- ============================================================
 -- 二、user_word_progress 表：每个用户对每个单词的学习进度
@@ -52,6 +91,8 @@ create table if not exists public.user_word_progress (
   familiarity         smallint not null default 0 check (familiarity between 0 and 3),
 
   -- 连续答对次数。复习算法靠它决定 3/7/14/30 天阶梯。
+  -- 用户原本的设计里只有 review_count/correct_count/wrong_count 三个累计值，
+  -- 它们回答不了「最近连续答对了几次」，而这个阶梯正是由连击数决定的。
   consecutive_correct integer not null default 0 check (consecutive_correct >= 0),
 
   review_count        integer not null default 0 check (review_count >= 0),   -- 复习总次数
@@ -76,10 +117,6 @@ create table if not exists public.user_word_progress (
 create index if not exists progress_user_next_review_idx
   on public.user_word_progress (user_id, next_review_time);
 
-
--- ============================================================
--- 三、自动维护 updated_at
--- ============================================================
 -- 这段是一个「触发器」：每次某一行被修改时，数据库自动把 updated_at
 -- 改成当前时间。放在数据库里做，就不怕哪天写代码时忘了更新它。
 create or replace function public.set_updated_at()
@@ -98,41 +135,8 @@ create trigger set_progress_updated_at
   for each row
   execute function public.set_updated_at();
 
-
--- ============================================================
--- 四、行级安全策略（RLS）—— 本文件最关键的部分
--- ============================================================
--- 先说清楚 RLS 是什么：
--- Supabase 的数据库是「可以被浏览器直接访问」的。浏览器用的是公开密钥，
--- 任何人都能拿到。那怎么防止别人读到你的数据？
--- 靠的就是 RLS：数据库对每一行数据都检查一遍「你是谁、你有没有资格看」。
---
--- 关键点：RLS 是数据库层强制执行的，不是靠前端代码自觉。
--- 就算有人改了浏览器里的代码绕过界面，数据库依然会拒绝他。
---
--- 开启 RLS 后，默认是「全部拒绝」。必须显式写出允许的策略，
--- 数据才读得到。所以下面每一条策略都是在「开一个口子」。
--- ============================================================
-
-alter table public.words enable row level security;
 alter table public.user_word_progress enable row level security;
 
-
--- ---------- words 表：所有人都能读，谁都不能改 ----------
--- 单词释义是公共知识，不是隐私，所以允许未登录用户也能读
--- （这样连接诊断页在登录前就能验证数据库是否打通）。
-drop policy if exists "单词：所有人可读" on public.words;
-create policy "单词：所有人可读"
-  on public.words
-  for select
-  to anon, authenticated
-  using (true);
-
--- 没有任何 insert / update / delete 策略 = 任何人都改不了单词库。
--- 只能由你在 Supabase 控制台手动改。这是故意的。
-
-
--- ---------- user_word_progress 表：只能碰自己的数据 ----------
 -- auth.uid() 是 Supabase 提供的函数，返回「当前登录用户的 ID」。
 -- 它从请求携带的登录凭证里读取，客户端无法伪造。
 --
@@ -171,26 +175,82 @@ create policy "进度：只能删自己的"
   to authenticated
   using ((select auth.uid()) = user_id);
 
-
--- ============================================================
--- 五、权限（和 RLS 是两回事，两个都要对才行）
--- ============================================================
--- 打个比方：权限是「能不能进这栋楼」，RLS 是「进去后能开哪几扇门」。
--- 两者缺一不可，所以这里都写清楚。
-grant select on public.words to anon, authenticated;
-revoke insert, update, delete on public.words from anon, authenticated;
-
 grant select, insert, update, delete on public.user_word_progress to authenticated;
 revoke all on public.user_word_progress from anon;
 -- 从上面这条可以看出：未登录用户连「进度表」这扇门都进不去。
+revoke truncate, references, trigger on public.user_word_progress from anon, authenticated;
 
 
 -- ============================================================
--- 六、自检查询（可选）
+-- 三、review_logs 表：每一次作答的流水记录
+-- ------------------------------------------------------------
+-- 【为什么需要这张表 —— 这是我对你给的表结构做的第二处补充】
+--
+-- user_word_progress 里只有一个 last_review_time，它保存的是「最近一次」
+-- 复习时间。也就是说：你周一背了 abandon，周三又背了一次，那么周一那条
+-- 记录就被覆盖掉了 —— 周一的那次学习在数据库里彻底消失了。
+--
+-- 结果就是：Dashboard 上「最近 7 天每天学了多少词」这个柱状图，用现有字段
+-- 算不出来（只能算出「最近 7 天碰过的词总数」，那是两回事）。
+--
+-- 所以加一张流水表：每作答一次就插一行，永不修改。
+-- 除了准确的每日统计，它还直接支撑你后面想做的 AI 功能：
+--   「根据最近错词生成测试题」→ 需要知道哪些词在什么时候答错了
+--   「今日薄弱词汇总结」      → 需要今天的完整作答记录
+-- 这些都需要「历史」，而进度表只保留「现状」。
+--
+-- 代价很小：每次作答多插一行。一张几千行的表对 Postgres 来说微不足道。
 -- ============================================================
--- 跑完上面的语句后，可以单独执行下面这句，确认两张表都建好了：
+create table if not exists public.review_logs (
+  id                 bigint generated always as identity primary key,
+  user_id            uuid not null references auth.users (id) on delete cascade,
+  word_id            bigint not null references public.words (id) on delete cascade,
+
+  -- 这次点了哪个按钮。用 check 限定取值，防止程序写进乱七八糟的值。
+  rating             text not null check (rating in ('again', 'hard', 'good')),
+
+  -- 作答之后的掌握程度，方便以后回看「这个词是怎么一步步变熟的」
+  familiarity_after  smallint not null check (familiarity_after between 0 and 3),
+
+  reviewed_at        timestamptz not null default now()
+);
+
+-- Dashboard 的每日统计要按「某人的某段时间」查，这个索引专门服务它
+create index if not exists review_logs_user_time_idx
+  on public.review_logs (user_id, reviewed_at desc);
+
+alter table public.review_logs enable row level security;
+
+drop policy if exists "流水：只能读自己的" on public.review_logs;
+create policy "流水：只能读自己的"
+  on public.review_logs
+  for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "流水：只能插入自己的" on public.review_logs;
+create policy "流水：只能插入自己的"
+  on public.review_logs
+  for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+-- 【为什么故意不给 update / delete 策略】
+-- 流水账的意义就在于「发生过的事不能改」。没有策略 = 拒绝，
+-- 所以任何用户（包括你自己）都无法篡改或删除历史记录。
+-- 这样统计数字永远可信。真要清空数据，在控制台手动执行即可。
+
+grant select, insert on public.review_logs to authenticated;
+revoke all on public.review_logs from anon;
+revoke truncate, references, trigger on public.review_logs from anon, authenticated;
+
+
+-- ============================================================
+-- 四、自检查询（可选）
+-- ============================================================
+-- 跑完上面的语句后，可以单独执行下面这句，确认表都建好了：
 --
 --   select table_name from information_schema.tables
 --   where table_schema = 'public' order by table_name;
 --
--- 预期看到：user_word_progress、words
+-- 预期看到：review_logs、user_word_progress、words
