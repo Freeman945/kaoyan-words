@@ -55,6 +55,25 @@ function SetupNotice() {
           确认是否打通。
         </p>
       </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 text-sm">
+        <p className="font-medium text-slate-900">
+          不想等数据库？先看看背单词界面
+        </p>
+        <p className="mt-2 text-slate-600">
+          这是一个不需要数据库的预览：用本地 40 个测试单词，完整演示
+          「显示释义 → 三选一 → 自动下一个」的流程。按钮下方的
+          「10 分钟后 / 1 天后 / 3 天后」是真实复习算法算出来的结果。
+        </p>
+        <p className="mt-3">
+          <Link
+            href="/preview/study"
+            className="font-medium text-slate-900 underline underline-offset-2"
+          >
+            打开背单词预览 →
+          </Link>
+        </p>
+      </div>
     </main>
   );
 }

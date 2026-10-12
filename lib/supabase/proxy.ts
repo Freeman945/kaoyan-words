@@ -19,7 +19,7 @@ import { getSupabaseKey, getSupabaseUrl, isSupabaseConfigured } from "@/lib/env"
  * - /login /register：还没登录的人当然要能打开
  * - /diagnostics：连接诊断页，配密钥阶段就要用，所以也必须能打开
  */
-const PUBLIC_PATHS = ["/login", "/register", "/diagnostics"];
+const PUBLIC_PATHS = ["/login", "/register", "/diagnostics", "/preview"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(

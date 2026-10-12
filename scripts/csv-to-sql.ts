@@ -15,98 +15,20 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { parseCsv } from "../lib/csv";
+import { WORD_CSV_COLUMNS } from "../lib/words";
 
-/** CSV 表头，必须一字不差 */
-const EXPECTED_HEADER = [
-  "word",
-  "phonetic",
-  "part_of_speech",
-  "meaning",
-  "example",
-  "example_translation",
-  "difficulty",
-] as const;
+/**
+ * CSV 表头，必须一字不差。
+ * 具体的列定义放在 lib/words.ts —— 因为「预览页面」也要用同一份定义，
+ * 两边各写一遍迟早会写歪。
+ */
+const EXPECTED_HEADER = WORD_CSV_COLUMNS;
 
 /** 每条 insert 语句最多带多少行数据。太大可能超出数据库的参数上限，所以分批。 */
 const BATCH_SIZE = 500;
 
-/**
- * 解析 CSV 文本，返回二维数组（每一行是一个字段数组）。
- *
- * 为什么要自己写解析，而不是直接 split(",")？
- * 因为真实词库里可能有带逗号的字段，那时 CSV 会用双引号包起来，
- * 例如："放弃，抛弃". 直接 split 会把一个字段切成两半。
- * 这里实现的是标准 CSV 规则：双引号内的逗号不算分隔符，
- * 连续两个双引号（""）表示一个真正的双引号字符。
- */
-function parseCsv(input: string): string[][] {
-  // 去掉 UTF-8 BOM。Windows 的 Excel 另存为 CSV 时会加这个隐藏字符，
-  // 不去掉的话第一个表头会变成 "\ufeffword"，比对表头就会失败。
-  const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
-
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentField = "";
-  let insideQuotes = false;
-  let index = 0;
-
-  while (index < text.length) {
-    const char = text[index];
-
-    if (insideQuotes) {
-      if (char === '"') {
-        if (text[index + 1] === '"') {
-          // 连续两个双引号 = 一个字面量双引号
-          currentField += '"';
-          index += 2;
-          continue;
-        }
-        insideQuotes = false;
-        index += 1;
-        continue;
-      }
-      currentField += char;
-      index += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      insideQuotes = true;
-      index += 1;
-      continue;
-    }
-    if (char === ",") {
-      currentRow.push(currentField);
-      currentField = "";
-      index += 1;
-      continue;
-    }
-    if (char === "\r") {
-      // Windows 换行是 \r\n，\r 直接忽略，交给 \n 处理
-      index += 1;
-      continue;
-    }
-    if (char === "\n") {
-      currentRow.push(currentField);
-      rows.push(currentRow);
-      currentRow = [];
-      currentField = "";
-      index += 1;
-      continue;
-    }
-
-    currentField += char;
-    index += 1;
-  }
-
-  // 文件末尾如果没有换行符，最后一行还没被推入
-  if (currentField !== "" || currentRow.length > 0) {
-    currentRow.push(currentField);
-    rows.push(currentRow);
-  }
-
-  return rows;
-}
+// CSV 解析函数已经搬到 lib/csv.ts，这样预览页面（lib/words.ts）也能复用同一份实现。
 
 /** 把字符串转成 SQL 里的字符串字面量，并转义单引号（防止 SQL 注入/语法错误） */
 function toSqlText(value: string): string {
