@@ -14,6 +14,7 @@
 | 样式 | Tailwind CSS 4 | 用 class 名直接写样式，不用单独写 CSS 文件 |
 | 数据库 | Supabase (PostgreSQL) | 云端数据库，存单词和学习进度 |
 | 登录认证 | Supabase Auth | 邮箱注册 / 登录，不用自己写密码逻辑 |
+| 测试 | Node.js 内置测试运行器 + tsx | 给复习算法等纯逻辑写自动化测试 |
 | 部署 | Vercel | 免费托管，推送代码自动上线 |
 | 版本管理 | Git / GitHub | 记录每次改动，改坏了可以回退 |
 
@@ -22,53 +23,106 @@
 ## 本地运行
 
 ```bash
-npm install     # 安装依赖（第一次需要，装完就不用再装）
-npm run dev     # 启动开发服务器
+npm install            # 安装依赖（第一次需要，装完就不用再装）
+npm run dev            # 启动开发服务器 → http://localhost:3000
 ```
-
-然后浏览器打开 http://localhost:3000
 
 其他命令：
 
 ```bash
-npm run build   # 生产构建（检查代码有没有错误，上线前跑一遍）
-npm run start   # 本地运行生产版本
-npm run lint    # 代码规范检查
+npm test               # 跑自动化测试（复习算法 + 登录提示）
+npm run build          # 生产构建（上线前跑一遍，会检查类型错误）
+npm run lint           # 代码规范检查
+npm run import:words   # 把 data/words-seed.csv 转成 supabase/seed.sql
+```
+
+导入自己的词库（几千个词也可以）：
+
+```bash
+npm run import:words -- data/kaoyan-5000.csv
 ```
 
 ## 目录结构
 
 ```
-app/                 页面目录。每个文件夹 = 一个网址
-  layout.tsx         全站最外层骨架（所有页面都套在这里面）
-  page.tsx           首页 = 网址 /
-  globals.css        全局样式，引入 Tailwind
-components/          可复用的 UI 组件（阶段 3 开始使用）
-lib/                 业务逻辑 + 数据库操作（登入、复习算法等）
-types/               TypeScript 类型定义（描述数据长什么样）
-data/                单词数据、CSV 词库文件
-proxy.ts             每次请求都会先经过这里（用于刷新登录状态）
-.env.local           私密配置（数据库地址、密钥），不进 Git
+app/                     页面目录。每个文件夹 = 一个网址
+  layout.tsx             全站最外层骨架
+  page.tsx               首页 = 网址 /（学习 Dashboard）
+  login/page.tsx         登录页
+  register/page.tsx      注册页
+  diagnostics/page.tsx   连接诊断页（出问题时先看这里）
+  auth/actions.ts        登录 / 注册 / 退出的服务端逻辑
+components/              可复用的 UI 组件
+  AuthForm.tsx           登录与注册共用的表单
+  SignOutButton.tsx      退出登录按钮
+lib/                     业务逻辑
+  env.ts                 读取环境变量，缺配置时给中文提示
+  auth.ts                查询当前登录用户 / 强制要求登录
+  auth-messages.ts       把 Supabase 英文报错翻译成中文
+  spaced-repetition.ts   间隔复习算法（本项目的大脑）
+  spaced-repetition.test.ts  算法的自动化测试
+  supabase/client.ts     浏览器端数据库客户端
+  supabase/server.ts     服务端数据库客户端
+  supabase/proxy.ts      会话刷新 + 访问控制
+proxy.ts                 每个请求最先经过这里（Next 16 的 middleware）
+types/index.ts           数据类型定义（Word / 进度记录 / 掌握程度）
+data/words-seed.csv      测试词库（40 个考研核心词汇）
+scripts/csv-to-sql.ts    CSV 词库 → SQL 导入脚本
+supabase/schema.sql      建表 + 行级安全策略（RLS）
+supabase/seed.sql        由脚本生成的单词导入 SQL
+.env.local               私密配置（数据库地址、密钥），不进 Git
 ```
 
-**分工原则**：`app/` 只管“页面长什么样”，`lib/` 只管“数据和规则怎么处理”。这样以后改复习算法只需要动 `lib/spaced-repetition.ts`，不用碰页面代码。
+**分工原则**：`app/` 只管「页面长什么样」，`lib/` 只管「数据和规则怎么处理」。这样以后改复习算法只需要动 `lib/spaced-repetition.ts`，不用碰页面代码。
+
+## 数据库配置（一次性）
+
+1. 在 supabase.com 免费创建项目
+2. 把 Project URL 和 Publishable key 填进 `.env.local`（参考 `.env.example`）
+3. 打开 Supabase 控制台 → SQL Editor，粘贴执行 `supabase/schema.sql`
+4. 再粘贴执行 `supabase/seed.sql`（导入 40 个测试单词）
+5. 重启 `npm run dev`，访问 `/diagnostics` 应显示绿色「连接成功」
+
+## 常见问题
+
+**注册后一直收不到验证邮件？**
+Supabase 免费版自带的邮件服务每小时只能发几封。个人自用最省事的做法是关掉邮箱验证：
+控制台 → Authentication → Sign In / Providers → Email → 关闭 `Confirm email`。
+这样注册后直接就是登录状态。
+
+**登录状态会莫名其妙丢失？**
+先确认你的会话刷新文件叫 `proxy.ts` 而不是 `middleware.ts`。Next.js 16 把
+middleware 改名成了 proxy，网上大部分 Supabase 教程还是旧写法，照抄会导致
+这段代码根本不执行。
+
+## 间隔复习规则
+
+| 你的选择 | 下次出现 | 掌握程度变化 |
+| --- | --- | --- |
+| 不认识 | 10 分钟后 | → 0 不认识，连击清零 |
+| 模糊 | 1 天后 | → 1 模糊，连击清零 |
+| 认识 | 3 → 7 → 14 → 30 → 60 天 | 连击满 4 次 → 3 已掌握 |
+
+规则全部写在 `lib/spaced-repetition.ts` 里，改完跑 `npm test` 即可确认没改坏。
 
 ## 开发阶段
 
-- [x] **阶段 1** 创建 Next.js + TypeScript + Tailwind 项目，能正常启动
-- [ ] **阶段 2** 接入 Supabase，建立数据库连接
-- [ ] **阶段 3** 实现注册、登录、退出，刷新页面登录状态不丢
-- [ ] **阶段 4** 建立 `words` 表，插入测试单词，网页能从数据库读单词
-- [ ] **阶段 5** 建立 `user_word_progress` 表，点击「认识 / 模糊 / 不认识」保存到数据库
-- [ ] **阶段 6** 验证持久化：学习几个词 → 退出 → 重新登录 → 进度还在
-- [ ] **阶段 7** 实现间隔复习算法，自动生成今日复习单词
-- [ ] **阶段 8** 制作用于统计的 Dashboard
-- [ ] **阶段 9** 优化 UI（简洁、适合长时间学习）
-- [ ] **阶段 10** 部署到 Vercel，可通过公网访问
+- [x] **阶段 1** Next.js + TypeScript + Tailwind 骨架，能正常启动
+- [x] **阶段 2** 接入 Supabase 客户端与环境变量校验（待填密钥实测）
+- [x] **阶段 3** 注册、登录、退出 + 会话保持（待填密钥实测）
+- [x] **阶段 4** 建表 SQL 与词库数据、CSV 导入工具（待执行到 Supabase）
+- [x] **阶段 5** 进度表结构与 RLS 安全策略（待执行到 Supabase）
+- [x] **阶段 7（核心）** 间隔复习算法 + 31 个自动化测试
+- [ ] **阶段 4/5（接入页面）** 背单词页面、保存学习记录
+- [ ] **阶段 6** 验证持久化：两个账号实测数据隔离
+- [ ] **阶段 7（接入）** 按 `next_review_time` 生成今日复习队列
+- [ ] **阶段 8** 学习统计 Dashboard
+- [ ] **阶段 9** 优化 UI
+- [ ] **阶段 10** 部署到 Vercel
 - [ ] **后续** 接入 AI：生成例句、近义词辨析、错词测试、薄弱词总结
 
 ## 数据安全原则
 
-1. 核心学习进度**必须存在 Supabase 数据库**，不能只放在浏览器 localStorage 里。
-2. 每个用户只能读写自己的学习记录 —— 靠 Supabase 的 Row Level Security（行级安全策略）在数据库层面强制保证，而不是靠前端代码自觉。
+1. 核心学习进度**存在 Supabase 数据库**，不只放在浏览器 localStorage 里。
+2. 每个用户只能读写自己的学习记录 —— 靠 Supabase 的行级安全策略（RLS）在**数据库层**强制保证，而不是靠前端代码自觉。就算有人改了浏览器里的代码，数据库依然会拒绝。
 3. API Key、数据库密钥写在 `.env.local`，这个文件不会提交到 Git。AI 接口一律在服务器端调用，密钥不进浏览器。

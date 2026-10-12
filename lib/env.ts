@@ -46,3 +46,24 @@ export function getSupabaseKey(): string {
 
   return required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", key);
 }
+
+/**
+ * 检查 Supabase 是否已经配置好，返回 true / false（不抛错）。
+ *
+ * 【和上面两个函数的区别很重要】
+ * getSupabaseUrl() / getSupabaseKey() 是「必须要用」的场景：配置缺失时直接
+ * 抛错，因为继续跑下去没意义。
+ * 而这个函数是「安静地问一句」：还没配置时，网站应该显示一句友好提示
+ * （「请先去 Supabase 创建项目」），而不是整页崩成 500 错误。
+ *
+ * 这里必须直接写 process.env.XXX，不能写成 process.env[变量名] ——
+ * Next.js 是在打包时把 NEXT_PUBLIC_ 开头的变量「替换成字面量」注入的，
+ * 用变量名动态读取会导致浏览器端拿到 undefined。
+ */
+export function isSupabaseConfigured(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  );
+}
