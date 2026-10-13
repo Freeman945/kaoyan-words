@@ -283,7 +283,17 @@ as $$
 $$;
 
 grant execute on function public.get_new_words(integer) to authenticated;
-revoke execute on function public.get_new_words(integer) from anon;
+
+-- 【为什么必须再 revoke 一次 from public】
+-- PostgreSQL 在创建函数时，默认把「执行权限」授予一个叫 PUBLIC 的伪角色
+-- —— 也就是"所有人"。只 revoke from anon 是不够的：anon 会通过 PUBLIC
+-- 继续继承这个权限，等于没收回。
+--
+-- 这是我在你这个真实项目上验证发现的：只 revoke from anon 时，未登录访客
+-- 依然能调用这个函数（它随后会因为读不到 user_word_progress 而报权限错误，
+-- 拿不到任何数据，所以没有数据泄露；但"能调用"本身就是一道不必要的口子）。
+revoke execute on function public.get_new_words(integer) from public;
+grant execute on function public.get_new_words(integer) to authenticated;
 
 
 -- ============================================================

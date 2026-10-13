@@ -30,12 +30,28 @@ npm run dev            # 启动开发服务器 → http://localhost:3000
 其他命令：
 
 ```bash
-npm test               # 跑全部自动化测试（118 个用例）
-                       #   算法 46 · 统计 26 · 界面渲染 13 · 数据库安全 33
+npm test               # 跑全部自动化测试（124 个用例）
+                       #   复习算法 17 · 统计 26 · CSV 解析 15 · 登录提示 14
+                       #   界面渲染 13 · 数据库安全 33 · 词库导入 6
 npm run build          # 生产构建（上线前跑一遍，会检查类型错误）
 npm run lint           # 代码规范检查
 npm run import:words   # 把 data/words-seed.csv 转成 supabase/seed.sql
+npm run verify:supabase  # 对真实 Supabase 跑一遍端到端验证
+                         # （用户隔离、权限、关联查询、upsert 等 20 多项）
 ```
+
+### 关于本机的网络代理
+
+这台电脑通过 `127.0.0.1:7897` 上的代理上网。但 **Node.js 默认不读 Windows 的系统代理设置**，
+直连 Supabase 会被重置，页面报 `TypeError: fetch failed`。
+
+所以 `npm run dev` 走的不是 `next dev`，而是包装脚本 `scripts/dev.mjs`：
+它先读 `.env.local` 里的 `HTTPS_PROXY`，把代理设置正确传进环境变量，再启动 Next.js。
+
+> **如果哪天代理软件换了端口**：改 `.env.local` 里 `HTTPS_PROXY` 那一行即可。
+> 想跳过包装直接启动（排查问题时），用 `npm run dev:direct`。
+
+部署到 Vercel 后完全用不到这段逻辑（那边没有代理，直接连）。
 
 导入自己的词库（几千个词也可以）：
 
