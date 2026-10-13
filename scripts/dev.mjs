@@ -58,11 +58,21 @@ if (proxy !== undefined && proxy !== "") {
   env.HTTPS_PROXY = proxy;
   env.HTTP_PROXY = env.HTTP_PROXY ?? proxy;
   env.NODE_USE_ENV_PROXY = "1";
-  console.log(`[dev] 已通过代理访问外网：${proxy}`);
+  console.log(`[next] 已通过代理访问外网：${proxy}`);
 } else {
-  console.log("[dev] 未检测到代理设置，按直连启动。");
-  console.log("      如果页面报 fetch failed，请检查 .env.local 里的 HTTPS_PROXY。");
+  console.log("[next] 未检测到代理设置，按直连启动。");
+  console.log("       如果页面报 fetch failed，请检查 .env.local 里的 HTTPS_PROXY。");
 }
+
+/*
+ * 要执行哪个 next 子命令：
+ *   npm run dev    → 不带参数 → 默认 "dev"（开发服务器）
+ *   npm start      → 传 "start" 进来（本地跑生产版本）
+ *
+ * 后面的额外参数会原样转发，例如：
+ *   node scripts/dev.mjs start -p 3100
+ */
+const [nextCommand = "dev", ...extraArgs] = process.argv.slice(2);
 
 // stdio: "inherit" 让 Next.js 的日志直接显示在当前终端里。
 //
@@ -73,7 +83,7 @@ if (proxy !== undefined && proxy !== "") {
 // 直接指定 JS 文件则不需要 shell，跨平台且没有警告。
 const nextCli = resolve(projectRoot, "node_modules/next/dist/bin/next");
 
-const child = spawn(process.execPath, [nextCli, "dev"], {
+const child = spawn(process.execPath, [nextCli, nextCommand, ...extraArgs], {
   cwd: projectRoot,
   env,
   stdio: "inherit",
