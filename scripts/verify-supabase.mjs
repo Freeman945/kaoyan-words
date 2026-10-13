@@ -111,6 +111,25 @@ function skip(name, reason) {
   console.log(`⏭️  ${name}  →  跳过：${reason}`);
 }
 
+/**
+ * 判断一次「修改」或「删除」是不是真的被挡住了。
+ *
+ * 【为什么要单独写这个】
+ * 数据库有两种不同的挡法，两种都算"挡住了"，但返回的形状不一样：
+ *   1. 权限层面直接拒绝 —— 返回 error（例如 42501 permission denied）
+ *   2. 行级安全策略把这些行过滤成"不可见" —— 没有 error，
+ *      但受影响行数是 0。这种情况下 supabase-js 给的 data 可能是
+ *      空数组 []，也可能是 null —— 只判断其中一种就会误报失败。
+ *      （我第一版就踩了这个坑，把成功的案例报成了 ❌。）
+ */
+function wasBlocked(result) {
+  if (result.error !== null && result.error !== undefined) {
+    return { blocked: true, how: `被拒绝（${result.error.code ?? result.error.message}）` };
+  }
+  const affected = result.data?.length ?? 0;
+  return { blocked: affected === 0, how: `影响 ${affected} 行` };
+}
+
 /** 让一个客户端以指定测试账号登录（没有就注册） */
 async function signInOrSignUp(client, email) {
   // 先试登录（如果账号之前已经建好了，这一步就够了，不会再发邮件）
@@ -317,35 +336,40 @@ async function main() {
   check("A 不能把进度写到 B 名下", aWriteAsB.error !== null, aWriteAsB.error?.code);
 
   // A 想改 B 的记录
-  const aUpdateB = await clientA
-    .from("user_word_progress")
-    .update({ familiarity: 3 })
-    .eq("user_id", userB.id)
-    .select();
-  check(
-    "A 改不动 B 的进度",
-    (aUpdateB.data?.length ?? -1) === 0,
-    `影响 ${aUpdateB.data?.length ?? 0} 行`,
+  const aUpdateB = wasBlocked(
+    await clientA
+      .from("user_word_progress")
+      .update({ familiarity: 3 })
+      .eq("user_id", userB.id)
+      .select(),
   );
+  check("A 改不动 B 的进度", aUpdateB.blocked, aUpdateB.how);
 
   // A 想删 B 的记录
-  const aDeleteB = await clientA
-    .from("user_word_progress")
-    .delete()
-    .eq("user_id", userB.id)
-    .select();
-  check(
-    "A 删不掉 B 的进度",
-    (aDeleteB.data?.length ?? -1) === 0,
-    `影响 ${aDeleteB.data?.length ?? 0} 行`,
+  const aDeleteB = wasBlocked(
+    await clientA
+      .from("user_word_progress")
+      .delete()
+      .eq("user_id", userB.id)
+      .select(),
   );
+  check("A 删不掉 B 的进度", aDeleteB.blocked, aDeleteB.how);
 
-  // 回头确认 B 的数据真的还在（上两条不是假象）
-  const bStillThere = await clientB.from("user_word_progress").select("id");
+  // 回头确认 B 的数据真的还在、而且内容没被动过
+  // （不只看"影响了 0 行"，而是真的把数据读出来核对一遍 ——
+  //   否则万一那个报错来自别的原因，测试就会假通过）
+  const bStillThere = await clientB
+    .from("user_word_progress")
+    .select("familiarity");
   check(
-    "确认 B 的数据完好无损",
+    "确认 B 的数据完好无损（条数）",
     (bStillThere.data?.length ?? 0) === 1,
     `B 现在有 ${bStillThere.data?.length ?? 0} 条`,
+  );
+  check(
+    "确认 B 的掌握程度没被 A 改动过（内容）",
+    bStillThere.data?.[0]?.familiarity === 1,
+    `familiarity = ${bStillThere.data?.[0]?.familiarity}（应为 1）`,
   );
 
   // ★ 关联查询 —— 这是只有真实 PostgREST 才能验证的语法
@@ -410,21 +434,35 @@ async function main() {
   });
   check("A 不能把流水记到 B 名下", logAsB.error !== null, logAsB.error?.code);
 
-  const updateLog = await clientA
-    .from("review_logs")
-    .update({ rating: "hard" })
-    .select();
+  const updateLog = wasBlocked(
+    await clientA.from("review_logs").update({ rating: "hard" }).select(),
+  );
+  check("流水改不了（历史不可篡改）", updateLog.blocked, updateLog.how);
+
+  const deleteLog = wasBlocked(
+    await clientA.from("review_logs").delete().select(),
+  );
+  check("流水删不掉", deleteLog.blocked, deleteLog.how);
+
+  // 同样地：不只信"操作被拒绝"，而是把流水读出来核对内容没被改过。
+  // 如果前面的 update 其实生效了，这里就会看到 rating 变成 "hard"。
+  const logsAfter = await clientA.from("review_logs").select("rating");
+  const allStillGood =
+    (logsAfter.data?.length ?? 0) > 0 &&
+    (logsAfter.data ?? []).every((row) => row.rating === "good");
   check(
-    "流水改不了（历史不可篡改）",
-    (updateLog.data?.length ?? -1) === 0,
-    `影响 ${updateLog.data?.length ?? 0} 行`,
+    "确认流水内容确实没被改过（全部仍是 good）",
+    allStillGood,
+    `读了 ${logsAfter.data?.length ?? 0} 条，值：${[
+      ...new Set((logsAfter.data ?? []).map((row) => row.rating)),
+    ].join("/")}`,
   );
 
-  const deleteLog = await clientA.from("review_logs").delete().select();
+  // 也确认一下没被删掉
   check(
-    "流水删不掉",
-    (deleteLog.data?.length ?? -1) === 0,
-    `影响 ${deleteLog.data?.length ?? 0} 行`,
+    "确认流水确实没被删掉",
+    (logsAfter.data?.length ?? 0) > 0,
+    `还剩 ${logsAfter.data?.length ?? 0} 条`,
   );
 
   reportAndExit();
