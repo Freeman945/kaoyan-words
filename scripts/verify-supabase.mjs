@@ -465,6 +465,74 @@ async function main() {
     `还剩 ${logsAfter.data?.length ?? 0} 条`,
   );
 
+  // ============ 六、跨会话持久化（本项目最核心的承诺） ============
+  //
+  // 用户最在意的一条是：「关掉浏览器、退出账号、甚至换台设备，
+  // 重新登录后进度还在」。
+  //
+  // 这一节就把它自动化验证一遍。关键在于「换设备」等价于
+  // 「一个全新的客户端 + 一次全新的登录」—— 因为它不带着任何
+  // 之前的内存状态或 cookie。如果进度还能读出来，就说明它真的
+  // 存在数据库里，而不是存在某个浏览器里。
+  console.log("\n── 六、跨会话持久化（模拟退出重登 / 换设备）──");
+
+  const newDevice = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const freshLogin = await signInOrSignUp(newDevice, USER_A_EMAIL);
+  check("在全新客户端上重新登录 A 成功", freshLogin.ok, freshLogin.reason ?? freshLogin.how);
+
+  if (freshLogin.ok) {
+    const freshUser = (await newDevice.auth.getUser()).data.user;
+    check("拿到的确实是同一个用户身份", freshUser?.id === userA.id);
+
+    const progressOnNewDevice = await newDevice
+      .from("user_word_progress")
+      .select("word_id, familiarity, review_count");
+    check(
+      "全新客户端能读到之前保存的进度",
+      (progressOnNewDevice.data?.length ?? 0) === 1 &&
+        progressOnNewDevice.data?.[0]?.review_count === 9,
+      `读到 ${progressOnNewDevice.data?.length ?? 0} 条，review_count = ${progressOnNewDevice.data?.[0]?.review_count}（应为 9）`,
+    );
+
+    const logsOnNewDevice = await newDevice.from("review_logs").select("id");
+    check(
+      "作答流水也能读到",
+      (logsOnNewDevice.data?.length ?? 0) > 0,
+      `${logsOnNewDevice.data?.length ?? 0} 条`,
+    );
+
+    // 再走一遍字面上的「退出 → 重新登录」流程
+    await newDevice.auth.signOut();
+
+    const afterSignOut = await newDevice
+      .from("user_word_progress")
+      .select("id");
+    check(
+      "退出登录后立刻读不到任何数据（会话确实失效了）",
+      afterSignOut.error !== null || (afterSignOut.data?.length ?? 0) === 0,
+      afterSignOut.error ? `被拒绝（${afterSignOut.error.code}）` : "返回 0 行",
+    );
+
+    const relogin = await newDevice.auth.signInWithPassword({
+      email: USER_A_EMAIL,
+      password: TEST_PASSWORD,
+    });
+    check("重新登录成功", relogin.error === null, relogin.error?.message);
+
+    const afterRelogin = await newDevice
+      .from("user_word_progress")
+      .select("word_id, review_count");
+    check(
+      "★ 重新登录后进度又回来了（这就是「退出重登不丢进度」）",
+      (afterRelogin.data?.length ?? 0) === 1 &&
+        afterRelogin.data?.[0]?.review_count === 9,
+      `读到 ${afterRelogin.data?.length ?? 0} 条，review_count = ${afterRelogin.data?.[0]?.review_count}`,
+    );
+  }
+
   reportAndExit();
 }
 
