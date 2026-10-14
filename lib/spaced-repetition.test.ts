@@ -17,8 +17,10 @@ import {
   describeReviewPlan,
   isDue,
   MASTERED_STREAK,
+  MAX_IN_SESSION_REPEATS,
   REVIEW_INTERVALS_MINUTES,
   scheduleNextReview,
+  shouldRequeueInSession,
   type ReviewInput,
 } from "./spaced-repetition";
 
@@ -53,11 +55,18 @@ describe("初始进度", () => {
 });
 
 describe("复习阶梯本身", () => {
-  it("阶梯从 5 分钟起步，一路拉长到 120 天", () => {
-    assert.equal(REVIEW_INTERVALS_MINUTES[0], 5, "第一档应该是 5 分钟");
-    assert.equal(REVIEW_INTERVALS_MINUTES[1], 30, "第二档应该是 30 分钟");
-    assert.equal(REVIEW_INTERVALS_MINUTES[2], 12 * 60, "第三档应该是 12 小时");
+  it("阶梯从 1 分钟起步，前三档都在一次学习之内", () => {
+    assert.equal(REVIEW_INTERVALS_MINUTES[0], 1, "第一档应该是 1 分钟");
+    assert.equal(REVIEW_INTERVALS_MINUTES[1], 5, "第二档应该是 5 分钟");
+    assert.equal(REVIEW_INTERVALS_MINUTES[2], 15, "第三档应该是 15 分钟");
     assert.equal(REVIEW_INTERVALS_MINUTES[3], 24 * 60, "第四档应该是 1 天");
+
+    // 这一条是用户提出的问题换来的：前三档如果长到一次学习装不下，
+    // 它们就永远不会在本轮里发生，等于白设。
+    assert.ok(
+      REVIEW_INTERVALS_MINUTES[2] <= 30,
+      "第三档不应该超过 30 分钟，否则一次正常学习够不着",
+    );
   });
 
   it("间隔必须严格递增，否则「越背越熟」就不成立了", () => {
@@ -72,9 +81,9 @@ describe("复习阶梯本身", () => {
   it("describeReviewPlan 能把整条阶梯翻译成中文", () => {
     const plan = describeReviewPlan();
     assert.equal(plan.length, REVIEW_INTERVALS_MINUTES.length);
-    assert.equal(plan[0].label, "5 分钟后");
-    assert.equal(plan[1].label, "30 分钟后");
-    assert.equal(plan[2].label, "12 小时后");
+    assert.equal(plan[0].label, "1 分钟后");
+    assert.equal(plan[1].label, "5 分钟后");
+    assert.equal(plan[2].label, "15 分钟后");
     assert.equal(plan[3].label, "1 天后");
     assert.equal(plan[0].mastered, false);
   });
@@ -132,13 +141,13 @@ describe("点击「模糊」", () => {
     assert.equal(result.consecutive_correct, 4);
   });
 
-  it("连击很低时会退到阶梯最前面（5 分钟）", () => {
+  it("连击很低时会退到阶梯最前面（1 分钟）", () => {
     const result = scheduleNextReview(
       progressAfter({ consecutive_correct: 1 }),
       "hard",
       NOW,
     );
-    assert.equal(result.next_review_time, minutesLater(5));
+    assert.equal(result.next_review_time, minutesLater(1));
     assert.equal(result.consecutive_correct, 0);
   });
 
@@ -148,7 +157,7 @@ describe("点击「模糊」", () => {
       "hard",
       NOW,
     );
-    assert.equal(result.next_review_time, minutesLater(5));
+    assert.equal(result.next_review_time, minutesLater(1));
     assert.equal(result.consecutive_correct, 0);
   });
 
@@ -195,10 +204,10 @@ describe("点击「认识」的艾宾浩斯阶梯", () => {
       progress = result;
     }
 
-    assert.deepEqual(firstThree, [5, 30, 12 * 60]);
+    assert.deepEqual(firstThree, [1, 5, 15]);
     assert.ok(
-      firstThree.every((minutes) => minutes < 24 * 60),
-      "前三次都应该在同一天内再见，把第一波遗忘压住",
+      firstThree.every((minutes) => minutes < 30),
+      "前三次都应该在一次正常学习之内再见，把第一波遗忘压住",
     );
   });
 
@@ -242,9 +251,9 @@ describe("答错会打断连续答对", () => {
     progress = scheduleNextReview(progress, "again", NOW);
     assert.equal(progress.consecutive_correct, 0);
 
-    // 再答对一次，间隔应该回到最短的 5 分钟，而不是接着 1 天
+    // 再答对一次，间隔应该回到最短的 1 分钟，而不是接着 1 天
     const afterRecovery = scheduleNextReview(progress, "good", NOW);
-    assert.equal(afterRecovery.next_review_time, minutesLater(5));
+    assert.equal(afterRecovery.next_review_time, minutesLater(1));
     assert.equal(afterRecovery.consecutive_correct, 1);
   });
 });
@@ -300,6 +309,61 @@ describe("describeInterval：把间隔说成人话", () => {
     assert.equal(
       describeInterval(NOW, new Date(NOW.getTime() + 120 * DAY_MS)),
       "120 天后",
+    );
+  });
+});
+
+/**
+ * 这一组测试来自用户提出的一个很实在的问题:
+ * 「第一次答对后是 5 分钟后，第二次 30 分钟后 —— 你有没有想过
+ *   我一次背不了 30 分钟？」
+ *
+ * 顺着这个问题查下去发现了更严重的事: 如果本轮队列是固定的，
+ * 那么「5 分钟后」这个词在本轮里根本不会再出现，只能等下次打开网站，
+ * 那时它早就逾期了。前三档等于白设。
+ *
+ * 所以加了「本轮之内重新排队」的规则，这里把规则钉住。
+ */
+describe("shouldRequeueInSession：短间隔的词要在本轮内再考一次", () => {
+  it("刚答对（1 分钟后）→ 要重新排队", () => {
+    assert.equal(
+      shouldRequeueInSession(minutesLater(AGAIN_INTERVAL_MINUTES), NOW, 0),
+      true,
+    );
+  });
+
+  it("阶梯前三档（1 / 5 / 15 分钟）都应该重新排队", () => {
+    for (const minutes of [1, 5, 15]) {
+      assert.equal(
+        shouldRequeueInSession(minutesLater(minutes), NOW, 0),
+        true,
+        `${minutes} 分钟这一档应该在本轮内重排`,
+      );
+    }
+  });
+
+  it("到了「1 天后」就不该在本轮里重排了", () => {
+    assert.equal(shouldRequeueInSession(minutesLater(24 * 60), NOW, 0), false);
+  });
+
+  it("已经重排够次数后不再重排（否则一直点不认识会死循环）", () => {
+    assert.equal(
+      shouldRequeueInSession(minutesLater(1), NOW, MAX_IN_SESSION_REPEATS),
+      false,
+    );
+    assert.equal(
+      shouldRequeueInSession(minutesLater(1), NOW, MAX_IN_SESSION_REPEATS - 1),
+      true,
+      "还没到上限时应该继续重排",
+    );
+  });
+
+  it("刚点过不认识的词（1 分钟后）也应该马上回到队列里", () => {
+    const result = scheduleNextReview(createInitialProgress(), "again", NOW);
+    assert.equal(
+      shouldRequeueInSession(result.next_review_time, NOW, 0),
+      true,
+      "刚才不会的词必须在本轮里再考一次，不能留到明天",
     );
   });
 });

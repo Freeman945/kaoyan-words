@@ -17,6 +17,7 @@ import {
   createInitialProgress,
   describeInterval,
   scheduleNextReview,
+  shouldRequeueInSession,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
 import {
@@ -32,6 +33,11 @@ export type StudyItem = {
   progress: ReviewInput;
   /** 这是本轮的新词（true）还是到期的复习词（false） */
   isNew?: boolean;
+  /**
+   * 这个词在本轮里已经被重新排过几次队。
+   * 用来防止「一直点不认识」导致它无限循环出现。
+   */
+  requeuedCount?: number;
 };
 
 type StudySessionProps = {
@@ -50,6 +56,20 @@ const RATINGS: ReviewRating[] = ["again", "hard", "good"];
 export function StudySession({ items, onRate }: StudySessionProps) {
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+
+  /**
+   * 本轮实际要走的队列。
+   *
+   * 【为什么不能直接用外面传进来的 items】
+   * 因为艾宾浩斯的前几档只有 1 / 5 / 15 分钟。如果一个词被排到
+   * 「5 分钟后再见」，而本轮队列是固定的，那它在这一次学习里就
+   * 永远不会再出现 —— 只能等明天打开网站，那时已经逾期了，
+   * 前三档等于白设。
+   *
+   * 所以这里用一个「会变长的队列」：间隔很短的词，会被重新塞回队尾，
+   * 在本轮里再考你一次。这才是艾宾浩斯曲线真正起作用的地方。
+   */
+  const [queue, setQueue] = useState<StudyItem[]>(items);
   /** 正在后台同步的作答数量，用来显示「同步中…」 */
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +132,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     // 这样监听函数里读到的永远是最新的 state，不会拿到旧值。
   });
 
-  if (items.length === 0) {
+  if (queue.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">
         没有需要学习的单词。
@@ -120,7 +140,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     );
   }
 
-  const currentItem = items[index];
+  const currentItem = queue[index];
 
   // 全部背完时的总结页
   if (finished) {
@@ -160,6 +180,8 @@ export function StudySession({ items, onRate }: StudySessionProps) {
             type="button"
             onClick={() => {
               setIndex(0);
+              // 队列也要恢复成最开始那样（把本轮中途加进去的重复项清掉）
+              setQueue(items);
               setRevealed(false);
               setFinished(false);
               setAnsweredCount(0);
@@ -257,19 +279,49 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
     setError(null);
     setProgressMap((prev) => ({ ...prev, [currentItem.word.id]: after }));
-    setFeedback(
-      `${RATING_LABELS[rating]} · 下次复习：${describeInterval(
-        now,
-        new Date(after.next_review_time),
-      )}`,
-    );
     setAnsweredCount((count) => count + 1);
 
     // 后台保存：故意不 await，界面不等它
     void persistRating(currentItem.word.id, rating);
 
+    /*
+     * 决定这个词要不要在「本轮之内」再出现一次。
+     *
+     * 这是艾宾浩斯复习法真正起作用的关键一步，我一开始漏掉了：
+     * 前几档间隔只有 1 / 5 / 15 分钟，如果本轮队列是固定的，
+     * 这些档位永远不会真的发生 —— 只能等明天再打开网站，
+     * 那时它早就逾期了，前三档等于白设。
+     *
+     * 判断逻辑抽在 lib/spaced-repetition.ts 里（有测试盯着），
+     * 这里只负责按结论操作队列。
+     */
+    const alreadyRequeued = currentItem.requeuedCount ?? 0;
+    const willRequeue = shouldRequeueInSession(
+      after.next_review_time,
+      now,
+      alreadyRequeued,
+    );
+
+    if (willRequeue) {
+      setQueue((prev) => [
+        ...prev,
+        {
+          ...currentItem,
+          progress: after,
+          requeuedCount: alreadyRequeued + 1,
+        },
+      ]);
+    }
+
+    const gapLabel = describeInterval(now, new Date(after.next_review_time));
+    setFeedback(
+      `${RATING_LABELS[rating]} · ${gapLabel}` +
+        (willRequeue ? "（本轮还会再考一次）" : ""),
+    );
+
     // 立刻前进到下一个词；已经是最后一个就进入总结页
-    if (index + 1 >= items.length) {
+    const nextLength = queue.length + (willRequeue ? 1 : 0);
+    if (index + 1 >= nextLength) {
       setFinished(true);
     } else {
       setIndex(index + 1);
@@ -286,17 +338,21 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     }
   }
 
-  const progressPercent = Math.round((index / items.length) * 100);
+  /*
+   * 进度按「队列」算，而不是按最开始那份词表算。
+   * 因为短间隔的词会被重新排进队列，队列是会长大的 —— 显示真实剩余量
+   * 比显示一个会跳动的总数更不容易让人困惑。
+   */
+  const remainingCount = Math.max(0, queue.length - index);
+  const progressPercent = Math.round((index / queue.length) * 100);
 
   return (
     <div className="space-y-4">
       {/* ---- 顶部进度 ---- */}
       <div>
         <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>
-            第 {index + 1} / {items.length} 个
-          </span>
-          <span>已作答 {answeredCount} 个</span>
+          <span>还剩 {remainingCount} 个</span>
+          <span>已作答 {answeredCount} 次</span>
         </div>
 
         <div
@@ -304,7 +360,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
           aria-label="本轮学习进度"
           aria-valuenow={index}
           aria-valuemin={0}
-          aria-valuemax={items.length}
+          aria-valuemax={queue.length}
           className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
         >
           <div
