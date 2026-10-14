@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AuthForm } from "@/components/AuthForm";
 
 export const metadata: Metadata = {
-  title: "登录 · 考研英语背单词",
+  title: "登录",
 };
 
 /**

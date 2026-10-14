@@ -6,7 +6,7 @@ import { createInitialProgress } from "@/lib/spaced-repetition";
 import { loadSeedWords } from "@/lib/words";
 
 export const metadata: Metadata = {
-  title: "背单词预览 · 考研英语背单词",
+  title: "界面预览",
 };
 
 /**

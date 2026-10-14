@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { SetupNotice } from "@/components/SetupNotice";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -12,10 +11,6 @@ import { calculateStars } from "@/lib/spaced-repetition";
 import { buildDailyPlan, DEFAULT_TIME_ZONE, type DailyCount, type ProgressStats } from "@/lib/stats";
 import { weekdayIndex } from "@/lib/weekly-report";
 import { sendWeeklyReportIfDue } from "@/lib/weekly-report-send";
-
-export const metadata: Metadata = {
-  title: "考研词记",
-};
 
 /**
  * 这个页面必须每次请求都重新渲染，不能被提前生成成静态页面。

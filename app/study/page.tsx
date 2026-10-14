@@ -8,7 +8,7 @@ import { getFocusWords, getStudyQueue } from "@/lib/progress";
 import { submitReview } from "./actions";
 
 export const metadata: Metadata = {
-  title: "背单词 · 考研英语背单词",
+  title: "背单词",
 };
 
 /** 这个页面每次都要读当前用户的数据，不能预生成成静态页 */
