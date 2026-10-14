@@ -128,6 +128,21 @@ export type WeeklyReportLogRow = {
 };
 
 /**
+ * study_reminder_log 表的一行：一次晚间提醒的发送记录。
+ *
+ * 唯一约束 (user_id, reminder_date) 是「一天只提醒一次」的保证，
+ * 所以定时任务重试也不会重复发。
+ * 建表语句：supabase/add-study-reminder-log.sql
+ */
+export type StudyReminderLogRow = {
+  id: number;
+  user_id: string;
+  /** 这条提醒是哪一天的（按北京时间的日期） */
+  reminder_date: string;
+  sent_at: string;
+};
+
+/**
  * 一次作答的保存结果。
  *
  * 【为什么用「返回对象」而不是「抛异常」表示失败】

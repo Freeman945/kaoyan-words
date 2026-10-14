@@ -18,8 +18,26 @@ import { getSupabaseKey, getSupabaseUrl, isSupabaseConfigured } from "@/lib/env"
  * 不需要登录就能访问的页面。
  * - /login /register：还没登录的人当然要能打开
  * - /diagnostics：连接诊断页，配密钥阶段就要用，所以也必须能打开
+ * - /preview：背单词界面预览，本地 40 个词，不需要数据库
+ * - /api/cron：定时任务调用的接口
+ *
+ * 【为什么 /api/cron 必须放行】
+ * 定时任务跑起来时没有浏览器的登录 cookie。如果这里不放行，
+ * 中间件会把它当成「未登录用户」重定向到登录页 ——
+ * 结果是定时任务永远执行不到，而且不会报任何错，静悄悄地什么都不发生。
+ *
+ * 放行不等于没有保护：这些接口自己会校验 CRON_SECRET
+ * （见 app/api/cron/study-reminder/route.ts）。
+ * 也就是说「能不能访问」由中间件管，「要不要执行」由接口自己管，
+ * 两层各管一件事。
  */
-const PUBLIC_PATHS = ["/login", "/register", "/diagnostics", "/preview"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/register",
+  "/diagnostics",
+  "/preview",
+  "/api/cron",
+];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(

@@ -340,10 +340,19 @@ export async function getFocusWords(
  * 而 created_at 正是那一刻。所以按天统计这些行的数量，
  * 就是「你每天真正新学了多少个词」—— 不用额外记日志。
  */
-export async function getPace(userId: string): Promise<
+export async function getPace(
+  userId: string,
+  /**
+   * 可选的数据库客户端。
+   * 平时不传，就用带登录态的那个（受 RLS 保护，只读得到自己的数据）。
+   * 定时任务没有登录态，会传一个管理员客户端进来 ——
+   * 这样统计逻辑只有一份，界面和邮件用的是同一套算法。
+   */
+  client?: SupabaseServerClient,
+): Promise<
   PaceEstimate & { dailyNewWords: DailyCount[]; remainingWords: number }
 > {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   const now = new Date();
 
   const since = new Date(
@@ -402,8 +411,10 @@ export async function getPace(userId: string): Promise<
  */
 export async function getStats(
   userId: string,
+  /** 可选的数据库客户端，理由同 getPace：让定时任务能复用同一套统计 */
+  client?: SupabaseServerClient,
 ): Promise<ProgressStats & { newWordsAvailable: number }> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
 
   const since = new Date(
     Date.now() - STREAK_WINDOW_DAYS * 24 * 60 * 60 * 1000,

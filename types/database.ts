@@ -25,6 +25,7 @@
  */
 import type {
   ReviewLogRow,
+  StudyReminderLogRow,
   WeeklyReportLogRow,
   Word,
   WordProgressRow,
@@ -114,6 +115,23 @@ export type Database = {
         >;
         Update: Partial<
           WithGeneratedColumns<WeeklyReportLogRow, "id" | "sent_at">
+        >;
+        Relationships: [];
+      };
+
+      /**
+       * 晚间学习提醒的发送记录。
+       * 建表语句在 supabase/add-study-reminder-log.sql。
+       * 唯一约束 (user_id, reminder_date) 用于保证「一天只提醒一次」。
+       */
+      study_reminder_log: {
+        Row: StudyReminderLogRow;
+        Insert: WithGeneratedColumns<
+          StudyReminderLogRow,
+          "id" | "sent_at"
+        >;
+        Update: Partial<
+          WithGeneratedColumns<StudyReminderLogRow, "id" | "sent_at">
         >;
         Relationships: [];
       };
