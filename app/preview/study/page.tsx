@@ -43,40 +43,27 @@ export default function PreviewStudyPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-6 p-6 sm:p-8">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-bold text-slate-900">背单词预览</h1>
+    <main className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-8">
+      <div className="mb-8 flex items-center justify-between gap-4">
         <Link
           href="/"
-          className="text-sm text-slate-500 underline underline-offset-2"
+          className="text-sm text-zinc-400 transition-colors hover:text-zinc-900"
         >
-          返回首页
+          ← 返回
         </Link>
-      </div>
-
-      <div className="rounded-lg border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900">
-        <p className="font-medium">🧪 预览模式：不会保存任何进度</p>
-        <p className="mt-1">
-          数据来自本地 <code className="rounded bg-white/70 px-1">data/words-seed.csv</code>{" "}
-          的 40 个测试单词。按钮下方的「10 分钟后 / 1 天后 / 3 天后」
-          是真实的复习算法算出来的。配好数据库后，阶段 5 会做出真正会保存进度的版本。
-        </p>
+        <span className="text-xs text-zinc-400">预览 · 不保存</span>
       </div>
 
       {loadError !== null ? (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
-          <p className="font-medium">读取测试词库失败</p>
-          <pre className="mt-2 whitespace-pre-wrap break-words">
+        <div className="border-l-2 border-rose-400 bg-rose-50/60 py-3 pl-4 text-sm">
+          <p className="font-medium text-rose-900">读取测试词库失败</p>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-800">
             {loadError}
           </pre>
         </div>
       ) : (
         <PreviewStudySession items={items} />
       )}
-
-      <p className="text-center text-xs text-slate-400">
-        小技巧：空格键显示释义，然后按 1 / 2 / 3 作答，长时间背的时候不用碰鼠标。
-      </p>
     </main>
   );
 }

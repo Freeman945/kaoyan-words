@@ -24,7 +24,7 @@ export function TestReportButton() {
       setIsError(!result.ok);
       setMessage(
         result.ok
-          ? `已发送到 ${result.to}，去邮箱看看（找不到就翻一下垃圾邮件）。`
+          ? `已发送至 ${result.to}（未收到请检查垃圾邮件）`
           : result.error,
       );
     } catch (cause) {
@@ -42,11 +42,11 @@ export function TestReportButton() {
         onClick={() => void handleClick()}
         disabled={sending}
         className={
-          "rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-600 " +
-          "transition hover:bg-slate-50 disabled:opacity-50"
+          "rounded-lg border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 " +
+          "transition-colors hover:bg-white disabled:opacity-50"
         }
       >
-        {sending ? "发送中…" : "立即发一封测试周报"}
+        {sending ? "发送中" : "发一封测试周报"}
       </button>
 
       {message !== null && (

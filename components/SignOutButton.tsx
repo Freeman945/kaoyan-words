@@ -17,9 +17,9 @@ export function SignOutButton() {
     <form action={signOut}>
       <button
         type="submit"
-        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+        className="rounded-lg px-2.5 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
       >
-        退出登录
+        退出
       </button>
     </form>
   );

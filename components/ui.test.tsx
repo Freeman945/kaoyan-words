@@ -85,8 +85,9 @@ describe("WordCard：释义的显示与隐藏", () => {
     const html = renderToStaticMarkup(
       <WordCard word={WORD} revealed={false} onReveal={noop} />,
     );
-    assert.match(html, /text-4xl/);
-    assert.match(html, /sm:text-5xl/);
+    // 32px 起步，大屏放大到 40px
+    assert.match(html, /text-\[2rem\]/);
+    assert.match(html, /sm:text-\[2\.5rem\]/);
   });
 
   it("键盘提示只是装饰，读屏软件应该跳过", () => {
@@ -103,7 +104,6 @@ describe("WordCard：新词 / 复习 角标", () => {
       <WordCard word={WORD} revealed={false} onReveal={noop} isNew={true} />,
     );
     assert.match(html, /新词/);
-    assert.match(html, /bg-sky-100/);
     assert.ok(!html.includes("复习"), "不该同时出现两个角标");
   });
 
@@ -112,7 +112,20 @@ describe("WordCard：新词 / 复习 角标", () => {
       <WordCard word={WORD} revealed={false} onReveal={noop} isNew={false} />,
     );
     assert.match(html, /复习/);
-    assert.match(html, /bg-amber-100/);
+  });
+
+  it("角标是弱化的纯文字，不用彩色胶囊", () => {
+    // 颜色是这个站里唯一区分「认识 / 模糊 / 不认识」的手段，
+    // 角标抢用彩色底会削弱那个区分，所以这里钉住它不能再变回彩色。
+    for (const isNew of [true, false]) {
+      const html = renderToStaticMarkup(
+        <WordCard word={WORD} revealed={false} onReveal={noop} isNew={isNew} />,
+      );
+      assert.ok(
+        !/bg-sky-100|bg-amber-100|bg-emerald-100/.test(html),
+        "角标不该用彩色底",
+      );
+    }
   });
 
   it("不传 isNew 时干脆不显示角标", () => {

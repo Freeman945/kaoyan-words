@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+/*
+ * 全站基础样式。
+ *
+ * 刻意保持很小：颜色、圆角、间距全部用 Tailwind 的 zinc 色阶现成值，
+ * 不自建一套 design token —— 这个项目没有大到需要那种东西，
+ * 多一层抽象反而让改一处颜色要跳三个文件。
+ */
+
+@theme {
+  /* 中英文混排的字体顺序：先试系统英文无衬线，再落到中文黑体 */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+html {
+  /* 手机上横屏时不要自动放大字号 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* 数字统一用等宽字形，表格和统计里不会跳来跳去 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

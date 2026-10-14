@@ -39,7 +39,7 @@ export function StarRating({
           className={
             (size === "md" ? "text-base" : "text-sm") +
             " leading-none " +
-            (index < filled ? "text-amber-500" : "text-slate-300")
+            (index < filled ? "text-amber-500" : "text-zinc-300")
           }
         >
           ★
@@ -47,7 +47,7 @@ export function StarRating({
       ))}
 
       {showNumber && (
-        <span className="ml-1 text-xs text-slate-400">
+        <span className="ml-1 text-xs tabular-nums text-zinc-400">
           {filled}/{MAX_STARS}
         </span>
       )}

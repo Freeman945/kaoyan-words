@@ -4,11 +4,11 @@
  * 单词卡：显示一个单词。
  *
  * 这个组件只负责「长什么样」，不关心数据从哪来、点了按钮之后写哪个数据库。
- * 这种「只负责显示」的组件叫展示型组件（presentational component）。
- * 好处是它可以在预览页面用，也可以在正式的背单词页面用，完全不用改。
+ * 这种「只负责显示」的组件叫展示型组件，预览页和正式页可以共用。
  *
- * 排版上的一切都为「长时间盯着看不累」服务：
- * 单词够大、释义和例句行距放松、一眼能分清哪部分是问题、哪部分是答案。
+ * 排版一切都为「连续盯 30 分钟不累」服务：
+ * 单词够大、释义和例句行距放开、问题区和答案区用一条线分开。
+ * 不加阴影、不用大圆角 —— 长时间看着，安静的边框比立体的卡片舒服。
  */
 import type { Word } from "@/types";
 
@@ -18,67 +18,50 @@ type WordCardProps = {
   revealed: boolean;
   /** 点击「显示释义」时调用 */
   onReveal: () => void;
-  /**
-   * 这是本轮的新词还是复习词。
-   * 不传就不显示角标（预览页面用得上）。
-   */
+  /** 本轮是新词还是复习词。不传就不显示（预览页用得上） */
   isNew?: boolean;
 };
 
 export function WordCard({ word, revealed, onReveal, isNew }: WordCardProps) {
+  const phonetic = word.phonetic ?? "";
+  const partOfSpeech = word.part_of_speech ?? "";
+  const hasMeta = phonetic !== "" || partOfSpeech !== "";
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      {/* ---- 顶部角标：新词 / 复习 ---- */}
+    <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 sm:px-10 sm:py-16">
       {isNew !== undefined && (
-        <div className="mb-5 flex justify-center">
-          <span
-            className={
-              "rounded-full px-3 py-1 text-xs font-medium " +
-              (isNew
-                ? "bg-sky-100 text-sky-800"
-                : "bg-amber-100 text-amber-800")
-            }
-          >
-            {isNew ? "新词" : "复习"}
-          </span>
-        </div>
+        <p className="mb-7 text-center text-xs tracking-wide text-zinc-400">
+          {isNew ? "新词" : "复习"}
+        </p>
       )}
 
-      {/* ---- 上半部分：单词本身。不管有没有显示释义都看得见 ---- */}
       <div className="text-center">
-        <h2 className="break-words text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
+        <h2 className="text-[2rem] leading-tight font-semibold tracking-tight break-words text-zinc-900 sm:text-[2.5rem]">
           {word.word}
         </h2>
 
-        {word.phonetic !== null && word.phonetic !== "" && (
-          <p className="mt-3 font-mono text-sm text-slate-500 sm:text-base">
-            {word.phonetic}
-          </p>
-        )}
-
-        {word.part_of_speech !== null && word.part_of_speech !== "" && (
-          <p className="mt-1 text-xs text-slate-400 sm:text-sm">
-            {word.part_of_speech}
+        {hasMeta && (
+          <p className="mt-3 font-mono text-sm text-zinc-400">
+            {[phonetic, partOfSpeech].filter((part) => part !== "").join("  ")}
           </p>
         )}
       </div>
 
-      {/* ---- 下半部分：释义和例句，点了「显示释义」才出现 ---- */}
       {revealed ? (
-        <div className="mt-7 space-y-5 border-t border-slate-100 pt-6">
-          <p className="text-xl font-medium text-slate-900 sm:text-2xl">
+        <div className="mt-12 border-t border-zinc-100 pt-8">
+          <p className="text-xl leading-relaxed font-medium text-zinc-900 sm:text-2xl">
             {word.meaning}
           </p>
 
           {word.example !== null && word.example !== "" && (
-            <div className="rounded-lg bg-slate-50 p-4">
-              {/* leading-7 让英文例句的行距松开，长句子更好读 */}
-              <p className="text-[15px] leading-7 text-slate-800">
+            // 用左边一条线代替灰色底块：更安静，也不和按钮抢注意力
+            <div className="mt-6 border-l-2 border-zinc-200 pl-4">
+              <p className="text-[15px] leading-7 text-zinc-700">
                 {word.example}
               </p>
               {word.example_translation !== null &&
                 word.example_translation !== "" && (
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                  <p className="mt-1.5 text-sm leading-6 text-zinc-500">
                     {word.example_translation}
                   </p>
                 )}
@@ -86,20 +69,23 @@ export function WordCard({ word, revealed, onReveal, isNew }: WordCardProps) {
           )}
         </div>
       ) : (
-        <div className="mt-7 border-t border-slate-100 pt-6">
+        <div className="mt-12 border-t border-zinc-100 pt-8">
           <button
             type="button"
             onClick={onReveal}
             className={
-              "w-full rounded-lg border border-slate-300 bg-white py-3.5 text-sm font-medium " +
-              "text-slate-700 transition hover:bg-slate-50 " +
-              "focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none"
+              "flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 py-3.5 " +
+              "text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 " +
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400"
             }
           >
             显示释义
-            {/* 手机上不需要这个提示 */}
-            <span aria-hidden="true" className="ml-2 hidden text-xs text-slate-400 sm:inline">
-              （空格键）
+            {/* 手机上不显示空格提示 */}
+            <span
+              aria-hidden="true"
+              className="hidden text-xs text-zinc-400 sm:inline"
+            >
+              空格
             </span>
           </button>
         </div>

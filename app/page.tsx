@@ -2,18 +2,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SetupNotice } from "@/components/SetupNotice";
 import { SignOutButton } from "@/components/SignOutButton";
+import { StarRating } from "@/components/StarRating";
+import { TestReportButton } from "@/components/TestReportButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import { getFocusWords, getPace, getStats } from "@/lib/progress";
 import { suggestDailyNewWordGoal } from "@/lib/pace";
-import { DEFAULT_TIME_ZONE } from "@/lib/stats";
+import { getFocusWords, getPace, getStats } from "@/lib/progress";
+import { calculateStars } from "@/lib/spaced-repetition";
+import { buildDailyPlan, DEFAULT_TIME_ZONE, type DailyCount, type ProgressStats } from "@/lib/stats";
 import { weekdayIndex } from "@/lib/weekly-report";
 import { sendWeeklyReportIfDue } from "@/lib/weekly-report-send";
-import { TestReportButton } from "@/components/TestReportButton";
-import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
 
 export const metadata: Metadata = {
-  title: "考研英语背单词",
+  title: "考研词记",
 };
 
 /**
@@ -27,99 +28,103 @@ export const dynamic = "force-dynamic";
 
 type StatsWithNewWords = ProgressStats & { newWordsAvailable: number };
 
-/** 一个统计数字卡片 */
-function StatCard({
+/** 一个大数字 + 下面的小标签。比卡片轻，适合并排放几个 */
+function Metric({
   label,
   value,
-  hint,
-  highlight = false,
+  tone = "default",
 }: {
   label: string;
-  value: number;
-  hint?: string;
-  highlight?: boolean;
+  value: string | number;
+  tone?: "default" | "warn";
 }) {
   return (
-    <div
-      className={
-        "rounded-xl border p-4 " +
-        (highlight
-          ? "border-slate-900 bg-slate-900"
-          : "border-slate-200 bg-white")
-      }
-    >
-      <p className={"text-xs " + (highlight ? "text-slate-300" : "text-slate-500")}>
-        {label}
-      </p>
-      <p
+    <div>
+      <div
         className={
-          "mt-1 text-2xl font-bold " +
-          (highlight ? "text-white" : "text-slate-900")
+          "text-3xl font-semibold tabular-nums tracking-tight " +
+          (tone === "warn" ? "text-amber-700" : "text-zinc-900")
         }
       >
         {value}
-      </p>
-      {hint !== undefined && (
-        <p
-          className={
-            "mt-0.5 text-xs " + (highlight ? "text-slate-400" : "text-slate-400")
-          }
-        >
-          {hint}
-        </p>
-      )}
+      </div>
+      <div className="mt-1 text-xs text-zinc-500">{label}</div>
+    </div>
+  );
+}
+
+/** 一行「标签 —— 数值」。靠对齐和分割线成组，不靠卡片 */
+function Row({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "warn" | "muted";
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-6 py-1.5">
+      <span className="text-sm text-zinc-500">{label}</span>
+      <span
+        className={
+          "text-sm tabular-nums " +
+          (tone === "warn"
+            ? "font-medium text-amber-700"
+            : tone === "muted"
+              ? "text-zinc-400"
+              : "font-medium text-zinc-900")
+        }
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
 /**
- * 最近 7 天学习量柱状图。
+ * 最近 7 天学习量。
  *
  * 没有引入图表库 —— 这个需求用 div 的高度就能表达，
  * 为了几根柱子装一个几百 KB 的依赖不划算。
  */
 function WeeklyChart({ days }: { days: DailyCount[] }) {
   const maxCount = Math.max(1, ...days.map((day) => day.count));
-  const maxBarHeight = 88;
+  const maxBarHeight = 64;
   const todayKey = days[days.length - 1]?.date;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <p className="text-sm font-medium text-slate-900">最近 7 天学习量</p>
-      <p className="mt-0.5 text-xs text-slate-500">按作答次数统计</p>
+    <div className="mt-4 flex items-end justify-between gap-1.5">
+      {days.map((day) => {
+        const isToday = day.date === todayKey;
+        const height =
+          day.count === 0
+            ? 2
+            : Math.max(4, Math.round((day.count / maxCount) * maxBarHeight));
 
-      <div className="mt-5 flex items-end justify-between gap-2">
-        {days.map((day) => {
-          const isToday = day.date === todayKey;
-          const height =
-            day.count === 0
-              ? 2
-              : Math.max(6, Math.round((day.count / maxCount) * maxBarHeight));
-
-          return (
-            <div key={day.date} className="flex flex-1 flex-col items-center gap-1">
-              <span className="text-[10px] text-slate-400">
-                {day.count > 0 ? day.count : ""}
-              </span>
-              <div
-                className={
-                  "w-full rounded-t " + (isToday ? "bg-slate-900" : "bg-slate-300")
-                }
-                style={{ height: `${height}px` }}
-                title={`${day.date}：${day.count} 次`}
-              />
-              <span
-                className={
-                  "text-[10px] " +
-                  (isToday ? "font-medium text-slate-900" : "text-slate-400")
-                }
-              >
-                {day.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+        return (
+          <div key={day.date} className="flex flex-1 flex-col items-center gap-1.5">
+            <span className="text-[10px] tabular-nums text-zinc-400">
+              {day.count > 0 ? day.count : ""}
+            </span>
+            <div
+              className={
+                "w-full rounded-sm " + (isToday ? "bg-zinc-700" : "bg-zinc-200")
+              }
+              style={{ height: `${height}px` }}
+              title={`${day.date}：${day.count} 次`}
+            />
+            <span
+              className={
+                "text-[10px] tabular-nums " +
+                (isToday ? "text-zinc-700" : "text-zinc-400")
+              }
+            >
+              {day.label}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -127,25 +132,17 @@ function WeeklyChart({ days }: { days: DailyCount[] }) {
 /** 读取统计失败时的提示 */
 function StatsError({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
-      <p className="font-medium">读取学习统计失败</p>
-      <pre className="mt-2 whitespace-pre-wrap break-words">{message}</pre>
-      <p className="mt-3">
-        如果提示表不存在，说明还没执行建表语句。请去 Supabase 控制台的 SQL
-        Editor 依次运行{" "}
-        <code className="rounded bg-white/70 px-1">supabase/schema.sql</code> 和{" "}
-        <code className="rounded bg-white/70 px-1">supabase/seed.sql</code>，
-        再回到{" "}
-        <Link href="/diagnostics" className="underline">
-          连接诊断
-        </Link>
-        看看。
-      </p>
+    <div className="mt-6 border-l-2 border-rose-400 bg-rose-50/60 py-3 pl-4 text-sm">
+      <p className="font-medium text-rose-900">读取数据失败</p>
+      <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-800">
+        {message}
+      </pre>
     </div>
   );
 }
 
 export default async function Home() {
+  // 还没填密钥时给出明确指引，而不是跳到一个用不了的登录页
   if (!isSupabaseConfigured()) {
     return <SetupNotice />;
   }
@@ -156,11 +153,6 @@ export default async function Home() {
   let stats: StatsWithNewWords | null = null;
   let pace: Awaited<ReturnType<typeof getPace>> | null = null;
   let errorMessage: string | null = null;
-  /*
-   * 重点词：从错误记录看最该盯的那些词。
-   * 这里顺便取前几个直接显示在首页 —— 「根据掌握情况给出重点词」
-   * 如果还要再点一层才能看到，就没人会去看了。
-   */
   let focusWords: Awaited<ReturnType<typeof getFocusWords>> = [];
 
   try {
@@ -175,20 +167,10 @@ export default async function Home() {
   }
 
   /*
-   * 周报：周末你打开网站时，把这周的情况发到你的邮箱。
+   * 周报：周末打开网站时发到邮箱。
    *
-   * 【为什么是「打开网站时发」而不是定时任务】
-   * 定时任务跑起来的时候没有用户登录态，按 RLS 规则读不到你的数据 ——
-   * 除非动用 service_role 密钥。放在这里就能用你自己的登录态，
-   * 既安全，也不用配定时任务。
-   *
-   * 【为什么先判断是不是周末】
-   * 「这周发过没有」需要查一次数据库。工作日根本不会发，
-   * 先做这个纯计算判断，能省掉工作日每次打开首页的一次数据库往返。
-   *
-   * 【为什么用 try/catch 包住】
-   * 发周报失败绝不能连累首页打不开。邮件发不出去是小事，
-   * 背不了单词是大事。
+   * 先做纯计算的星期判断，省掉工作日每次打开首页的一次数据库往返。
+   * 整段用 try/catch 包住 —— 发周报失败绝不能连累首页打不开。
    */
   if (
     user.email !== undefined &&
@@ -201,25 +183,28 @@ export default async function Home() {
     }
   }
 
-  // 用和背单词页面同一套函数来算今日任务，
-  // 这样首页显示的「今天要背多少」和点进去看到的数量一定一致。
-  // 注意新词数量不再是写死的 20，而是跟着你的实际节奏算出来的。
+  const dailyGoal =
+    pace === null ? null : suggestDailyNewWordGoal(pace.avgPerDay);
+
+  // 和背单词页面用同一套函数算今日任务，保证两处数字一致
   const plan =
-    stats === null || pace === null
+    stats === null || pace === null || dailyGoal === null
       ? null
       : buildDailyPlan({
           dueCount: stats.dueForReview,
           newWordsAvailable: stats.newWordsAvailable,
-          dailyNewWordGoal: suggestDailyNewWordGoal(pace.avgPerDay),
+          dailyNewWordGoal: dailyGoal,
         });
 
   return (
-    <main className="mx-auto max-w-2xl space-y-6 p-6 sm:p-8">
-      <header className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">考研英语背单词</h1>
-          <p className="mt-0.5 break-all text-xs text-slate-500">
-            {user.email ?? "（未提供邮箱）"}
+    <main className="mx-auto w-full max-w-3xl px-5 py-10 sm:px-8">
+      <header className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-4">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold tracking-tight text-zinc-900">
+            考研词记
+          </h1>
+          <p className="mt-0.5 truncate text-xs text-zinc-400">
+            {user.email ?? "未提供邮箱"}
           </p>
         </div>
         <SignOutButton />
@@ -228,132 +213,99 @@ export default async function Home() {
       {errorMessage !== null && <StatsError message={errorMessage} />}
 
       {stats !== null && pace !== null && plan !== null && (
-        <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard
-              label="今日待复习"
-              value={plan.reviewCount}
-              highlight={plan.reviewCount > 0}
-            />
-            <StatCard
-              label="今日新词"
-              value={plan.newWordCount}
-              hint="按你的节奏安排"
-            />
-            <StatCard
-              label="已掌握"
-              value={stats.masteredWords}
-              hint={`在学 ${stats.learningWords} 个`}
-            />
-            <StatCard label="学习总词数" value={stats.totalWords} />
-          </div>
+        <div className="mt-10 space-y-10">
+          {/* ── 今日：首页第一重点 ── */}
+          <section>
+            <h2 className="text-xs font-medium tracking-wide text-zinc-400">
+              今日
+            </h2>
+            <div className="mt-4 flex items-end gap-10">
+              <Metric label="待复习" value={plan.reviewCount} />
+              <Metric label="新词" value={plan.newWordCount} />
+              <Metric label="合计" value={plan.total} tone="default" />
+            </div>
 
-          <Link
-            href="/study"
-            className="block rounded-xl bg-slate-900 px-6 py-4 text-center text-base font-medium text-white transition hover:bg-slate-700"
-          >
-            {plan.total > 0
-              ? `开始学习（${plan.total} 个词）`
-              : "今天已经学完啦 · 进去看看"}
-          </Link>
+            <Link
+              href="/study"
+              className="mt-6 inline-flex h-10 items-center rounded-lg bg-zinc-900 px-5 text-sm font-medium text-white transition-colors hover:bg-zinc-700"
+            >
+              {plan.total > 0 ? "开始学习" : "今日已完成"}
+            </Link>
+          </section>
 
-          {/*
-            学习节奏与「什么时候能背完」。
-            这一段是这次改动的重点：不再拍脑袋定「每天必须背 20 个」，
-            而是观察你最近两周实际背了多少，再推算完成时间，
-            并对照考研日期告诉你来不来得及。
-          */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5">
-            <p className="text-sm font-medium text-slate-900">
-              按你最近两周的节奏估算
-            </p>
+          {/* ── 进度 ── */}
+          <section className="border-t border-zinc-200 pt-6">
+            <h2 className="text-xs font-medium tracking-wide text-zinc-400">
+              进度
+            </h2>
+            <div className="mt-2 divide-y divide-zinc-100">
+              <Row
+                label="词汇进度"
+                value={`${stats.totalWords} / ${stats.totalWords + pace.remainingWords}`}
+              />
+              <Row label="已掌握" value={String(stats.masteredWords)} />
+              <Row label="在学" value={String(stats.learningWords)} />
+              <Row label="连续学习" value={`${stats.streakDays} 天`} />
+              <Row label="每日新词" value={String(dailyGoal)} />
+              <Row
+                label="预计第一轮完成"
+                value={pace.projectedFinishDate ?? "—"}
+                tone={pace.projectedFinishDate === null ? "muted" : "default"}
+              />
+              <Row label="距 2028 考研" value={`${pace.daysUntilExam} 天`} />
+              {pace.avgPerDay > 0 && !pace.onTrack && (
+                <Row
+                  label="考前需每日新词"
+                  value={String(pace.requiredPerDay)}
+                  tone="warn"
+                />
+              )}
+            </div>
+          </section>
 
-            {pace.avgPerDay > 0 ? (
-              <>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  最近 <strong className="text-slate-900">{pace.windowDays}</strong>{" "}
-                  天平均每天新学{" "}
-                  <strong className="text-slate-900">
-                    {pace.avgPerDay.toFixed(1)}
-                  </strong>{" "}
-                  个词
-                  {pace.activeDays < pace.windowDays && (
-                    <span className="text-slate-400">
-                      （{pace.windowDays} 天里有 {pace.activeDays} 天在学习，
-                      休息日也算进平均里）
-                    </span>
-                  )}
-                </p>
+          {/* ── 最近 7 天 ── */}
+          <section className="border-t border-zinc-200 pt-6">
+            <h2 className="text-xs font-medium tracking-wide text-zinc-400">
+              最近 7 天
+            </h2>
+            <WeeklyChart days={stats.last7Days} />
+          </section>
 
-                <p className="mt-1.5 text-sm leading-6 text-slate-600">
-                  还剩{" "}
-                  <strong className="text-slate-900">{pace.remainingWords}</strong>{" "}
-                  个词没学，按这个节奏预计{" "}
-                  <strong className="text-slate-900">
-                    {pace.projectedFinishDate}
-                  </strong>{" "}
-                  背完
-                </p>
-
-                <p
-                  className={
-                    "mt-2 text-sm font-medium " +
-                    (pace.onTrack ? "text-emerald-700" : "text-rose-700")
-                  }
-                >
-                  距离 2028 考研还有 {pace.daysUntilExam} 天 ——{" "}
-                  {pace.onTrack
-                    ? "这个节奏来得及 ✓"
-                    : `按这个速度背不完，需要每天新学 ${pace.requiredPerDay} 个`}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-400">
-                  说明：新词数量不是硬性要求，是照着你的实际节奏安排的。
-                  想调整节奏，多背或少背几天，估算会自动跟着变。
-                </p>
-              </>
-            ) : (
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                还没有足够的学习记录。先背几天，我就能根据你的实际节奏
-                算出什么时候能背完、以及考试前来不来得及。
-              </p>
-            )}
-          </div>
-
-          <WeeklyChart days={stats.last7Days} />
-
-          {/*
-            重点词卡片。
-            「今日待复习」是按艾宾浩斯时间表到期的词，而这里是
-            从错误记录看出来的隐患 —— 两者不一样，所以分开显示。
-            只放前几个，想全看再点进去。
-          */}
+          {/* ── 重点词 ── */}
           {focusWords.length > 0 && (
-            <div className="rounded-xl border border-amber-300 bg-amber-50 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-amber-900">
-                  重点词 · 这些最容易忘
-                </p>
+            <section className="border-t border-zinc-200 pt-6">
+              <div className="flex items-baseline justify-between gap-4">
+                <h2 className="text-xs font-medium tracking-wide text-zinc-400">
+                  重点词
+                </h2>
                 <Link
                   href="/focus"
-                  className="text-xs text-amber-900 underline underline-offset-2"
+                  className="text-xs text-zinc-400 transition-colors hover:text-zinc-900"
                 >
-                  查看全部 →
+                  全部
                 </Link>
               </div>
 
-              <ul className="mt-3 space-y-2">
-                {focusWords.slice(0, 3).map((item) => (
+              <ul className="mt-2 divide-y divide-zinc-100">
+                {focusWords.slice(0, 5).map((item) => (
                   <li
                     key={item.word.id}
-                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                    className="flex items-center gap-3 py-2"
                   >
-                    <span className="font-semibold text-amber-900">
+                    <span className="w-32 shrink-0 truncate font-medium text-zinc-900">
                       {item.word.word}
                     </span>
-                    <span className="text-amber-800">{item.word.meaning}</span>
-                    <span className="text-xs text-amber-700 opacity-80">
-                      {item.reasons.slice(0, 2).join("、")}
+                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-500">
+                      {item.word.meaning}
+                    </span>
+                    <StarRating
+                      stars={calculateStars(
+                        item.progress.correct_count,
+                        item.progress.wrong_count,
+                      )}
+                    />
+                    <span className="w-14 shrink-0 text-right text-xs tabular-nums text-zinc-400">
+                      错 {item.progress.wrong_count}
                     </span>
                   </li>
                 ))}
@@ -361,40 +313,34 @@ export default async function Home() {
 
               <Link
                 href="/study?focus=1"
-                className={
-                  "mt-4 block rounded-lg bg-amber-800 px-4 py-2 text-center text-sm " +
-                  "font-medium text-white transition hover:bg-amber-900"
-                }
+                className="mt-4 inline-flex h-9 items-center rounded-lg border border-zinc-300 px-4 text-sm text-zinc-700 transition-colors hover:bg-zinc-50"
               >
-                马上攻克这些词
+                复习重点词
               </Link>
-            </div>
+            </section>
           )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="今日已作答" value={stats.reviewedToday} hint="次" />
-            <StatCard label="连续学习天数" value={stats.streakDays} hint="天" />
-          </div>
-        </>
+        </div>
       )}
 
       {/*
-        测试发送按钮。
-        真正的周报只在周末发，配好邮件服务后要等好几天才知道有没有配错。
-        这个按钮让你随时验证整条链路。
+        开发者入口。放在折叠区里，不占正常使用的视线。
       */}
-      <div className="pt-2">
-        <TestReportButton />
-      </div>
-
-      <footer className="flex items-center justify-between pt-2 text-xs text-slate-400">
-        <Link href="/diagnostics" className="underline underline-offset-2">
-          连接诊断
-        </Link>
-        <Link href="/preview/study" className="underline underline-offset-2">
-          背单词界面预览（不存数据库）
-        </Link>
-      </footer>
+      <details className="mt-12 border-t border-zinc-200 pt-4 text-xs text-zinc-400">
+        <summary className="cursor-pointer select-none hover:text-zinc-600">
+          高级
+        </summary>
+        <div className="mt-3 space-y-3">
+          <TestReportButton />
+          <div className="flex gap-4">
+            <Link href="/diagnostics" className="hover:text-zinc-900">
+              连接诊断
+            </Link>
+            <Link href="/preview/study" className="hover:text-zinc-900">
+              界面预览（不写数据库）
+            </Link>
+          </div>
+        </div>
+      </details>
     </main>
   );
 }

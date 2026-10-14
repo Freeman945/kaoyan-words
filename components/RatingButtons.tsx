@@ -3,49 +3,49 @@
 /**
  * 三个作答按钮：不认识 / 模糊 / 认识。
  *
- * 【一个用心的小设计】
- * 每个按钮下面那行小字（例如「3 天后」）不是写死的，而是由调用方用
- * 真实的复习算法算出来后传进来的。所以你点之前就能看到「点下去会发生
- * 什么」。同一个单词在不同阶段，这三个数字是不一样的 —— 这正是
- * 间隔复习在起作用的样子。
+ * 按钮下面那行小字（例如「4 天后」）不是写死的，是调用方用真实的复习算法
+ * 算出来后传进来的 —— 点之前就知道「点下去会怎样」。
+ *
+ * 键盘数字缩在按钮右上角，只写「1 / 2 / 3」。
+ * 不写「按 1」这类说明：能看见数字的人自然知道，看不见的人也不受影响。
  */
 import type { ReviewRating } from "@/types";
 
 type RatingButtonsProps = {
   onRate: (rating: ReviewRating) => void;
-  /** 正在保存时禁用按钮，防止连点导致同一个词被记两次 */
+  /** 正在保存时禁用，防止连点导致同一个词被记两次 */
   disabled?: boolean;
-  /** 每个按钮下方的小字提示，由调用方算好传入 */
+  /** 每个按钮下方的小字，由调用方算好传入 */
   hints?: Partial<Record<ReviewRating, string>>;
 };
 
-/** 按钮的顺序和配色。红色 = 不会，黄色 = 模糊，绿色 = 认识 */
-const BUTTON_CONFIG: ReadonlyArray<{
+/** 顺序和配色。红 = 不会，橙 = 模糊，绿 = 认识，都用低饱和色 */
+const BUTTONS: ReadonlyArray<{
   rating: ReviewRating;
   label: string;
-  keyboardKey: string;
+  key: string;
   className: string;
 }> = [
   {
     rating: "again",
     label: "不认识",
-    keyboardKey: "1",
+    key: "1",
     className:
-      "border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100 focus-visible:ring-rose-400",
+      "border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 focus-visible:outline-rose-400",
   },
   {
     rating: "hard",
     label: "模糊",
-    keyboardKey: "2",
+    key: "2",
     className:
-      "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 focus-visible:ring-amber-400",
+      "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 focus-visible:outline-amber-400",
   },
   {
     rating: "good",
     label: "认识",
-    keyboardKey: "3",
+    key: "3",
     className:
-      "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 focus-visible:ring-emerald-400",
+      "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 focus-visible:outline-emerald-400",
   },
 ];
 
@@ -55,17 +55,17 @@ export function RatingButtons({
   hints = {},
 }: RatingButtonsProps) {
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3">
-      {BUTTON_CONFIG.map((button) => (
+    <div className="grid grid-cols-3 gap-2">
+      {BUTTONS.map((button) => (
         <button
           key={button.rating}
           type="button"
           disabled={disabled}
           onClick={() => onRate(button.rating)}
           className={
-            // 手机上按钮更高一些，方便拇指点击
-            "flex min-h-[72px] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-3 " +
-            "text-sm font-medium transition focus-visible:ring-2 focus-visible:outline-none " +
+            // 手机上按钮高一点，方便拇指点
+            "relative flex min-h-[64px] flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-3 " +
+            "text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 " +
             "disabled:cursor-not-allowed disabled:opacity-50 " +
             button.className
           }
@@ -73,21 +73,17 @@ export function RatingButtons({
           <span>{button.label}</span>
 
           {hints[button.rating] !== undefined && (
-            <span className="text-xs font-normal opacity-70">
+            <span className="text-xs font-normal tabular-nums opacity-60">
               {hints[button.rating]}
             </span>
           )}
 
-          {/*
-            键盘提示只在有实体键盘的设备上显示。
-            手机上显示「按 1」只会让人困惑（而且这个空间更该留给主文案）。
-            aria-hidden 是为了让读屏软件跳过它 —— 它只是给眼睛看的装饰。
-          */}
+          {/* 键盘数字。手机上不显示——那个空间留给正事 */}
           <span
             aria-hidden="true"
-            className="hidden text-[10px] opacity-50 sm:block"
+            className="absolute top-1.5 right-2 hidden text-[10px] tabular-nums opacity-40 sm:block"
           >
-            按 {button.keyboardKey}
+            {button.key}
           </span>
         </button>
       ))}

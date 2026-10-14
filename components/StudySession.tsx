@@ -138,7 +138,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   if (queue.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">
+      <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500">
         没有需要学习的单词。
       </div>
     );
@@ -146,39 +146,45 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   const currentItem = queue[index];
 
-  // 全部背完时的总结页
+  // 全部背完时的总结
   if (finished) {
     const newCount = items.filter((item) => item.isNew === true).length;
     const reviewCount = items.length - newCount;
 
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <p className="text-2xl font-bold text-slate-900">🎉 这一轮背完了</p>
+      <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center">
+        <p className="text-lg font-semibold text-zinc-900">本轮完成</p>
 
-        <div className="mt-6 flex justify-center gap-8">
+        <div className="mt-8 flex justify-center gap-10">
           <div>
-            <p className="text-3xl font-bold text-slate-900">{reviewCount}</p>
-            <p className="mt-1 text-xs text-slate-500">复习旧词</p>
+            <p className="text-3xl font-semibold tabular-nums text-zinc-900">
+              {reviewCount}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">复习</p>
           </div>
           <div>
-            <p className="text-3xl font-bold text-slate-900">{newCount}</p>
-            <p className="mt-1 text-xs text-slate-500">学习新词</p>
+            <p className="text-3xl font-semibold tabular-nums text-zinc-900">
+              {newCount}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">新词</p>
+          </div>
+          <div>
+            <p className="text-3xl font-semibold tabular-nums text-zinc-900">
+              {answeredCount}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">作答</p>
           </div>
         </div>
 
-        <p className="mt-6 text-sm text-slate-500">
-          这些词的复习时间已经排好了，明天回来会先复习到期的。
-        </p>
-
-        <div className="mt-6 flex flex-col items-center gap-3">
+        <div className="mt-10 flex flex-col items-center gap-3">
           <Link
             href="/"
             className={
-              "w-full max-w-xs rounded-lg bg-slate-900 px-5 py-3 text-sm font-medium text-white " +
-              "transition hover:bg-slate-700"
+              "inline-flex h-10 items-center rounded-lg bg-zinc-900 px-6 text-sm font-medium " +
+              "text-white transition-colors hover:bg-zinc-700"
             }
           >
-            返回首页看统计
+            返回
           </Link>
           <button
             type="button"
@@ -192,16 +198,12 @@ export function StudySession({ items, onRate }: StudySessionProps) {
               setFeedback(null);
               setFeedbackStars(null);
             }}
-            className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
+            // 「进度保留」这四个字保留着：不然会以为点一下会把学过的东西清掉
+            className="text-xs text-zinc-400 transition-colors hover:text-zinc-700"
           >
             再来一轮（进度保留）
           </button>
         </div>
-
-        <p className="mt-4 text-xs text-slate-400">
-          再来一轮时进度会保留，所以你会看到「认识」的间隔从 3 天慢慢变成
-          7 天、14 天 —— 这就是间隔复习在起作用。
-        </p>
       </div>
     );
   }
@@ -321,7 +323,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     const gapLabel = describeInterval(now, new Date(after.next_review_time));
     setFeedback(
       `${RATING_LABELS[rating]} · ${gapLabel}` +
-        (willRequeue ? "（本轮还会再考一次）" : ""),
+        (willRequeue ? " · 本轮重现" : ""),
     );
     // 顺手把作答后的星级也显示出来，让你看到这个词涨了还是掉了
     setFeedbackStars(starsOf(after));
@@ -355,12 +357,11 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   return (
     <div className="space-y-4">
-      {/* ---- 顶部进度 ---- */}
-      <div>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>还剩 {remainingCount} 个</span>
-          <span>已作答 {answeredCount} 次</span>
-        </div>
+      {/* ── 顶部：只放进度 ── */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs tabular-nums text-zinc-500">
+          {index + 1} / {queue.length}
+        </span>
 
         <div
           role="progressbar"
@@ -368,23 +369,17 @@ export function StudySession({ items, onRate }: StudySessionProps) {
           aria-valuenow={index}
           aria-valuemin={0}
           aria-valuemax={queue.length}
-          className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+          className="h-0.5 flex-1 overflow-hidden rounded-full bg-zinc-200"
         >
           <div
-            className="h-full rounded-full bg-slate-900 transition-all"
+            className="h-full rounded-full bg-zinc-900 transition-all duration-150"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-      </div>
 
-      {/*
-        当前这个词的星级熟练度。
-        必须在「作答之前」就显示出来 —— 一个新词第一次出现在你面前时，
-        就应该看到它是 3 颗星（基础熟练度），而不是等答完才有星级。
-      */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs text-slate-400">熟练度</span>
-        <StarRating stars={starsOf(currentProgress)} showNumber />
+        <span className="text-xs tabular-nums text-zinc-400">
+          还剩 {remainingCount}
+        </span>
       </div>
 
       <WordCard
@@ -394,6 +389,16 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         isNew={currentItem.isNew}
       />
 
+      {/*
+        这个词当前的星级。
+        必须在「作答之前」就显示 —— 新词第一次出现时应当看到它是 3 颗，
+        而不是等答完才第一次看到星级。
+      */}
+      <div className="flex items-center justify-center gap-2 text-xs text-zinc-400">
+        <span>熟练度</span>
+        <StarRating stars={starsOf(currentProgress)} />
+      </div>
+
       {revealed && (
         <RatingButtons
           onRate={(rating) => void handleRate(rating)}
@@ -402,55 +407,50 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       )}
 
       {/*
-        aria-live="polite" 让读屏软件在内容变化时朗读出来，
-        不会像 role="alert" 那样粗暴打断。
-        min-h 是为了固定这一块的高度，避免出现提示时页面跳动。
+        aria-live="polite" 让读屏软件在内容变化时朗读，
+        不像 role="alert" 那样粗暴打断。
+        min-h 固定高度，避免出现提示时页面跳动。
       */}
       <div
         aria-live="polite"
-        className="flex min-h-[20px] items-center justify-center gap-2 text-center text-sm"
+        className="flex min-h-[20px] items-center justify-center gap-2 text-center text-xs text-zinc-500"
       >
         {pendingCount > 0 ? (
-          <span className="text-slate-400">同步中…</span>
+          <span className="text-zinc-400">保存中</span>
         ) : feedback !== null ? (
           <>
-            <span className="text-slate-500">{feedback}</span>
+            <span className="tabular-nums">{feedback}</span>
             {feedbackStars !== null && <StarRating stars={feedbackStars} />}
           </>
         ) : null}
       </div>
 
       {/*
-        保存失败的提示。
-        因为现在是「先翻页、后保存」，失败时没法把人拦在当场，
-        所以这里必须显眼地告诉用户「有一些没存上」，并给一个重试按钮。
-        换句话说：界面变快了，但不能因此悄悄丢数据。
+        保存失败提示。
+        现在是「先翻页、后保存」，失败时没法把人拦在当场，
+        所以必须明确说出来并让重试 —— 界面变快了，但不能因此悄悄丢数据。
       */}
       {failedSaves.length > 0 && (
         <div
           role="alert"
-          className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+          className="flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
         >
-          <p className="font-medium">
-            有 {failedSaves.length} 个词没能保存成功
-          </p>
-          <p className="mt-1 text-xs leading-5">
-            这些词的作答还没记进数据库。请检查网络后点下面的按钮重试 ——
-            不重试的话，这几个词下次还会当成没背过。
-          </p>
-          {error !== null && (
-            <p className="mt-1 text-xs opacity-80">{error}</p>
-          )}
+          <span className="min-w-0 truncate">
+            {failedSaves.length} 个词未保存
+            {error !== null && (
+              <span className="ml-1 text-xs opacity-70">{error}</span>
+            )}
+          </span>
           <button
             type="button"
             onClick={() => void retryFailedSaves()}
-            className={
-              "mt-2 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-medium text-white " +
-              "transition hover:bg-rose-800 disabled:opacity-50"
-            }
             disabled={pendingCount > 0}
+            className={
+              "shrink-0 rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white " +
+              "transition-colors hover:bg-rose-800 disabled:opacity-50"
+            }
           >
-            {pendingCount > 0 ? "重试中…" : "重试保存"}
+            {pendingCount > 0 ? "重试中" : "重试"}
           </button>
         </div>
       )}

@@ -5,11 +5,10 @@ import { StarRating } from "@/components/StarRating";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
 import { getFocusWords } from "@/lib/progress";
-import { FOCUS_SCORE_THRESHOLD } from "@/lib/focus";
 import { calculateStars } from "@/lib/spaced-repetition";
 
 export const metadata: Metadata = {
-  title: "重点词 · 考研英语背单词",
+  title: "重点词",
 };
 
 export const dynamic = "force-dynamic";
@@ -31,163 +30,88 @@ export default async function FocusPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-5 p-6 sm:p-8">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-bold text-slate-900">重点词</h1>
+    <main className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-8">
+      <header className="flex items-center justify-between gap-4">
         <Link
           href="/"
-          className="text-sm text-slate-500 underline underline-offset-2"
+          className="text-sm text-zinc-400 transition-colors hover:text-zinc-900"
         >
-          返回首页
+          ← 返回
         </Link>
-      </div>
-
-      {/*
-        为什么要单独解释一段：
-        用户看到一列词，得先明白「重点词」和「今日待复习」不是一回事，
-        否则会困惑「这些词我明明今天不用复习啊」。
-      */}
-      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-600">
-        <p>
-          这里列的不是「今天到期该复习的词」，而是
-          <strong className="text-slate-900">从你的错误记录看最容易忘的词</strong>
-          —— 答错多的、一直模糊的、拖了很久没复习的。
-        </p>
-        <p className="mt-2">
-          每个词下面都写了它<strong className="text-slate-900">为什么被挑中</strong>，
-          你可以自己判断该不该多花点时间。
-        </p>
-      </div>
+        {focusWords.length > 0 && (
+          <span className="text-xs tabular-nums text-zinc-400">
+            {focusWords.length} 个
+          </span>
+        )}
+      </header>
 
       {errorMessage !== null ? (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
-          <p className="font-medium">读取重点词失败</p>
-          <pre className="mt-2 whitespace-pre-wrap break-words">
+        <div className="mt-8 border-l-2 border-rose-400 bg-rose-50/60 py-3 pl-4 text-sm">
+          <p className="font-medium text-rose-900">读取失败</p>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-rose-800">
             {errorMessage}
           </pre>
         </div>
       ) : focusWords.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-lg font-medium text-slate-900">
-            暂时没有重点词 🎉
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            说明你学过的词里，还没有出现「反复错」或「一直模糊」的。
-            继续按今日任务背就行。
-          </p>
-          <p className="mt-4 text-sm">
-            <Link href="/study" className="underline underline-offset-2">
-              去背单词 →
-            </Link>
-          </p>
+        <div className="mt-8 rounded-xl border border-zinc-200 bg-white px-6 py-16 text-center text-sm text-zinc-500">
+          暂无重点词
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-slate-600">
-              共 <strong className="text-slate-900">{focusWords.length}</strong>{" "}
-              个词需要重点关注
-            </p>
-            <Link
-              href="/study?focus=1"
-              className={
-                "rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white " +
-                "transition hover:bg-slate-700"
-              }
-            >
-              马上攻克这些词
-            </Link>
-          </div>
+          <Link
+            href="/study?focus=1"
+            className={
+              "mt-8 inline-flex h-10 items-center rounded-lg bg-zinc-900 px-5 text-sm " +
+              "font-medium text-white transition-colors hover:bg-zinc-700"
+            }
+          >
+            复习这 {focusWords.length} 个词
+          </Link>
 
-          <ul className="space-y-3">
+          {/*
+            列表而非卡片。
+            「为什么被挑中」直接写成一行小字，不再做成一个个彩色标签 ——
+            标签多了会变成装饰，文字反而更好读。
+          */}
+          <ul className="mt-6 divide-y divide-zinc-200 border-t border-zinc-200">
             {focusWords.map((item) => (
-              <li
-                key={item.word.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="text-lg font-semibold text-slate-900">
-                    {item.word.word}
-                  </span>
-                  {item.word.phonetic !== null &&
-                    item.word.phonetic !== "" && (
-                      <span className="font-mono text-xs text-slate-500">
-                        {item.word.phonetic}
-                      </span>
-                    )}
-                  {item.word.part_of_speech !== null &&
-                    item.word.part_of_speech !== "" && (
-                      <span className="text-xs text-slate-400">
-                        {item.word.part_of_speech}
-                      </span>
-                    )}
-                  {/*
-                    星级熟练度：0~5 颗，新词从 3 颗起步。
-                    这里刻意不再显示旧的「不认识 / 模糊 / 认识 / 已掌握」
-                    分类标签 —— 它和星级会打架（新词明明 3 颗星，
-                    旧标签却写「不认识」），两个说法并存只会让人困惑。
-                  */}
-                  <span className="ml-auto">
-                    <StarRating
-                      stars={calculateStars(
-                        item.progress.correct_count,
-                        item.progress.wrong_count,
-                      )}
-                      showNumber
-                    />
-                  </span>
-                </div>
-
-                <p className="mt-2 text-sm text-slate-800">
-                  {item.word.meaning}
-                </p>
-
-                {/* 为什么它被挑中 —— 这是这个页面最有价值的信息 */}
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {item.reasons.map((reason) => (
-                    <span
-                      key={reason}
-                      className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
-                    >
-                      {reason}
+              <li key={item.word.id} className="flex items-center gap-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium text-zinc-900">
+                      {item.word.word}
                     </span>
-                  ))}
+                    {item.word.phonetic !== null &&
+                      item.word.phonetic !== "" && (
+                        <span className="font-mono text-xs text-zinc-400">
+                          {item.word.phonetic}
+                        </span>
+                      )}
+                  </div>
+
+                  <p className="mt-0.5 truncate text-sm text-zinc-500">
+                    {item.word.meaning}
+                  </p>
+
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {item.reasons.join(" · ")}
+                  </p>
                 </div>
 
-                <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-                  <div className="flex gap-1">
-                    <dt>复习</dt>
-                    <dd className="text-slate-600">
-                      {item.progress.review_count} 次
-                    </dd>
-                  </div>
-                  <div className="flex gap-1">
-                    <dt>答对</dt>
-                    <dd className="text-slate-600">
-                      {item.progress.correct_count} 次
-                    </dd>
-                  </div>
-                  <div className="flex gap-1">
-                    <dt>答错</dt>
-                    <dd className="text-slate-600">
-                      {item.progress.wrong_count} 次
-                    </dd>
-                  </div>
-                  {item.overdueDays > 0 && (
-                    <div className="flex gap-1">
-                      <dt>逾期</dt>
-                      <dd className="text-rose-600">{item.overdueDays} 天</dd>
-                    </div>
-                  )}
-                </dl>
+                <div className="shrink-0 text-right">
+                  <StarRating
+                    stars={calculateStars(
+                      item.progress.correct_count,
+                      item.progress.wrong_count,
+                    )}
+                  />
+                  <p className="mt-1 text-xs tabular-nums text-zinc-400">
+                    错 {item.progress.wrong_count} / {item.progress.review_count}
+                  </p>
+                </div>
               </li>
             ))}
           </ul>
-
-          <p className="text-center text-xs text-slate-400">
-            排序依据：掌握程度、错误率、累计答错次数、逾期天数（综合评分 ≥{" "}
-            {FOCUS_SCORE_THRESHOLD} 才会出现在这里）
-          </p>
         </>
       )}
     </main>
