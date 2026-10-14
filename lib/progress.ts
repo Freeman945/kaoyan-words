@@ -18,6 +18,7 @@
  * 表结构告诉了 TypeScript，所以下面每个查询的返回结果都是自动推断出来的，
  * 列名写错会直接编译不过。
  */
+import { rankFocusWords, type FocusCandidate, type FocusWord } from "@/lib/focus";
 import {
   createInitialProgress,
   scheduleNextReview,
@@ -40,6 +41,9 @@ const REVIEW_QUEUE_LIMIT = 100;
 
 /** 计算连续学习天数时往前看多少天（连续天数超过这个数就只显示到这个数） */
 const STREAK_WINDOW_DAYS = 180;
+
+/** 挑重点词时最多捞多少个候选（数据库里已经粗筛过，这个上限只是兜底保护） */
+const FOCUS_CANDIDATE_LIMIT = 2000;
 
 /** 学习队列里的一项：一个单词 + 我当前的进度 */
 export type StudyQueueEntry = {
@@ -251,6 +255,57 @@ export async function saveReview(
   }
 
   return { nextReviewTime: next.next_review_time };
+}
+
+/**
+ * 取「重点词」：根据掌握情况挑出最该盯的那些词。
+ *
+ * 和「今日待复习」的区别：
+ *   - 待复习 = 按时间表到期了（艾宾浩斯说该看了）
+ *   - 重点词 = 不管到期没到期，从你的错误记录看它就是个隐患
+ * 一个还没到期、但你连着错了三次的词，才是真该盯的。
+ *
+ * 排序规则全在 lib/focus.ts 里（纯函数，有 15 个测试盯着）。
+ * 这里只负责把候选数据捞出来喂给它。
+ */
+export async function getFocusWords(
+  userId: string,
+  limit = 20,
+): Promise<FocusWord[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("user_word_progress")
+    .select(
+      "familiarity, consecutive_correct, review_count, correct_count, wrong_count, next_review_time, words(*)",
+    )
+    .eq("user_id", userId)
+    /*
+     * 先在数据库里粗筛一遍，避免把几千个词全传回来：
+     *   掌握程度还不是「已掌握」，或者已经错够两次
+     * 已经掌握、又从来没错过的词，最多只是「到期该复习」，
+     * 不构成重点词，所以不进候选。
+     */
+    .or("familiarity.lte.2,wrong_count.gte.2")
+    .limit(FOCUS_CANDIDATE_LIMIT);
+
+  if (error !== null) {
+    throw new Error(`读取重点词失败：${error.message}`);
+  }
+
+  const candidates: FocusCandidate[] = (data ?? []).map((row) => ({
+    word: row.words,
+    progress: {
+      familiarity: row.familiarity,
+      consecutive_correct: row.consecutive_correct,
+      review_count: row.review_count,
+      correct_count: row.correct_count,
+      wrong_count: row.wrong_count,
+      next_review_time: row.next_review_time,
+    },
+  }));
+
+  return rankFocusWords(candidates, new Date(), limit);
 }
 
 /**

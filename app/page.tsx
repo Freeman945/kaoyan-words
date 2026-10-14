@@ -4,7 +4,7 @@ import { SetupNotice } from "@/components/SetupNotice";
 import { SignOutButton } from "@/components/SignOutButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import { getStats } from "@/lib/progress";
+import { getFocusWords, getStats } from "@/lib/progress";
 import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
 
 export const metadata: Metadata = {
@@ -150,9 +150,16 @@ export default async function Home() {
 
   let stats: StatsWithNewWords | null = null;
   let errorMessage: string | null = null;
+  /*
+   * 重点词：从错误记录看最该盯的那些词。
+   * 这里顺便取前几个直接显示在首页 —— 「根据掌握情况给出重点词」
+   * 如果还要再点一层才能看到，就没人会去看了。
+   */
+  let focusWords: Awaited<ReturnType<typeof getFocusWords>> = [];
 
   try {
     stats = await getStats(user.id);
+    focusWords = await getFocusWords(user.id, 5);
   } catch (cause) {
     errorMessage = cause instanceof Error ? cause.message : "读取统计失败。";
   }
@@ -212,6 +219,55 @@ export default async function Home() {
           </Link>
 
           <WeeklyChart days={stats.last7Days} />
+
+          {/*
+            重点词卡片。
+            「今日待复习」是按艾宾浩斯时间表到期的词，而这里是
+            从错误记录看出来的隐患 —— 两者不一样，所以分开显示。
+            只放前几个，想全看再点进去。
+          */}
+          {focusWords.length > 0 && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-amber-900">
+                  重点词 · 这些最容易忘
+                </p>
+                <Link
+                  href="/focus"
+                  className="text-xs text-amber-900 underline underline-offset-2"
+                >
+                  查看全部 →
+                </Link>
+              </div>
+
+              <ul className="mt-3 space-y-2">
+                {focusWords.slice(0, 3).map((item) => (
+                  <li
+                    key={item.word.id}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                  >
+                    <span className="font-semibold text-amber-900">
+                      {item.word.word}
+                    </span>
+                    <span className="text-amber-800">{item.word.meaning}</span>
+                    <span className="text-xs text-amber-700 opacity-80">
+                      {item.reasons.slice(0, 2).join("、")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <Link
+                href="/study?focus=1"
+                className={
+                  "mt-4 block rounded-lg bg-amber-800 px-4 py-2 text-center text-sm " +
+                  "font-medium text-white transition hover:bg-amber-900"
+                }
+              >
+                马上攻克这些词
+              </Link>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <StatCard label="今日已作答" value={stats.reviewedToday} hint="次" />

@@ -1,8 +1,8 @@
 /**
- * 间隔复习算法的自动测试。
+ * 艾宾浩斯复习算法的自动测试。
  *
  * 为什么算法要单独写测试？
- * 复习节奏是这个网站的核心规则。以后你可能会想「3 天太短了，改成 5 天吧」，
+ * 复习节奏是这个网站的核心规则。以后你可能会想「5 分钟太短了，改成 10 分钟吧」，
  * 改完如果没测试，你得手动背好几个词才能看出有没有改坏。
  * 有了测试，跑一条 `npm test` 就知道规则还对不对。
  *
@@ -12,16 +12,19 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   AGAIN_INTERVAL_MINUTES,
-  CORRECT_INTERVALS_DAYS,
   createInitialProgress,
   describeInterval,
+  describeReviewPlan,
   isDue,
+  MASTERED_STREAK,
+  REVIEW_INTERVALS_MINUTES,
   scheduleNextReview,
   type ReviewInput,
 } from "./spaced-repetition";
 
 const MINUTE_MS = 60 * 1000;
-const DAY_MS = 24 * 60 * MINUTE_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
 
 // 固定一个「现在」，这样测试结果才有唯一答案。
 // 如果直接用 new Date()，每次跑的时间都不同，就没法断言了。
@@ -30,11 +33,6 @@ const NOW = new Date("2026-10-12T10:00:00.000Z");
 /** 生成「NOW 之后 N 分钟」的 ISO 字符串，用于和算法结果比对 */
 function minutesLater(minutes: number): string {
   return new Date(NOW.getTime() + minutes * MINUTE_MS).toISOString();
-}
-
-/** 生成「NOW 之后 N 天」的 ISO 字符串 */
-function daysLater(days: number): string {
-  return new Date(NOW.getTime() + days * DAY_MS).toISOString();
 }
 
 /** 造一个「已经背过几次」的进度，避免每个测试都写一长串字段 */
@@ -54,10 +52,38 @@ describe("初始进度", () => {
   });
 });
 
+describe("复习阶梯本身", () => {
+  it("阶梯从 5 分钟起步，一路拉长到 120 天", () => {
+    assert.equal(REVIEW_INTERVALS_MINUTES[0], 5, "第一档应该是 5 分钟");
+    assert.equal(REVIEW_INTERVALS_MINUTES[1], 30, "第二档应该是 30 分钟");
+    assert.equal(REVIEW_INTERVALS_MINUTES[2], 12 * 60, "第三档应该是 12 小时");
+    assert.equal(REVIEW_INTERVALS_MINUTES[3], 24 * 60, "第四档应该是 1 天");
+  });
+
+  it("间隔必须严格递增，否则「越背越熟」就不成立了", () => {
+    for (let i = 1; i < REVIEW_INTERVALS_MINUTES.length; i += 1) {
+      assert.ok(
+        REVIEW_INTERVALS_MINUTES[i] > REVIEW_INTERVALS_MINUTES[i - 1],
+        `第 ${i + 1} 档必须比前一档长`,
+      );
+    }
+  });
+
+  it("describeReviewPlan 能把整条阶梯翻译成中文", () => {
+    const plan = describeReviewPlan();
+    assert.equal(plan.length, REVIEW_INTERVALS_MINUTES.length);
+    assert.equal(plan[0].label, "5 分钟后");
+    assert.equal(plan[1].label, "30 分钟后");
+    assert.equal(plan[2].label, "12 小时后");
+    assert.equal(plan[3].label, "1 天后");
+    assert.equal(plan[0].mastered, false);
+  });
+});
+
 describe("点击「不认识」", () => {
-  it("10 分钟后再复习，掌握程度归零，连击清零", () => {
+  it("5 分钟后重来，掌握程度归零，连击清零", () => {
     const result = scheduleNextReview(
-      progressAfter({ familiarity: 2, consecutive_correct: 3, correct_count: 4 }),
+      progressAfter({ familiarity: 2, consecutive_correct: 5 }),
       "again",
       NOW,
     );
@@ -78,18 +104,51 @@ describe("点击「不认识」", () => {
     assert.equal(result.wrong_count, 2, "错词次数应该 +1");
     assert.equal(result.correct_count, 4, "答对次数不应该变");
   });
+
+  it("就算已经背到很高的档位，答错也一律归零", () => {
+    const result = scheduleNextReview(
+      progressAfter({ consecutive_correct: 9, familiarity: 3 }),
+      "again",
+      NOW,
+    );
+
+    assert.equal(result.consecutive_correct, 0);
+    assert.equal(result.next_review_time, minutesLater(AGAIN_INTERVAL_MINUTES));
+  });
 });
 
 describe("点击「模糊」", () => {
-  it("1 天后再复习，掌握程度降到 1，连击清零", () => {
+  it("往下退一档，而不是直接退回原点", () => {
+    // 连击 5 次时正常间隔是阶梯第 5 档（2 天）；
+    // 模糊之后应该退到第 4 档（1 天），而不是打回 5 分钟。
     const result = scheduleNextReview(
-      progressAfter({ familiarity: 3, consecutive_correct: 4 }),
+      progressAfter({ consecutive_correct: 5 }),
       "hard",
       NOW,
     );
 
-    assert.equal(result.next_review_time, daysLater(1));
+    assert.equal(result.next_review_time, minutesLater(24 * 60), "应退到 1 天");
     assert.equal(result.familiarity, 1);
+    assert.equal(result.consecutive_correct, 4);
+  });
+
+  it("连击很低时会退到阶梯最前面（5 分钟）", () => {
+    const result = scheduleNextReview(
+      progressAfter({ consecutive_correct: 1 }),
+      "hard",
+      NOW,
+    );
+    assert.equal(result.next_review_time, minutesLater(5));
+    assert.equal(result.consecutive_correct, 0);
+  });
+
+  it("已经是最低档时不会退成负数", () => {
+    const result = scheduleNextReview(
+      progressAfter({ consecutive_correct: 0 }),
+      "hard",
+      NOW,
+    );
+    assert.equal(result.next_review_time, minutesLater(5));
     assert.equal(result.consecutive_correct, 0);
   });
 
@@ -106,67 +165,86 @@ describe("点击「模糊」", () => {
   });
 });
 
-describe("点击「认识」的间隔阶梯", () => {
-  it("连续答对时，间隔依次是 3 → 7 → 14 → 30 → 60 天", () => {
+describe("点击「认识」的艾宾浩斯阶梯", () => {
+  it("连续答对时，间隔严格按阶梯依次拉长", () => {
     let progress: ReviewInput = createInitialProgress();
 
-    CORRECT_INTERVALS_DAYS.forEach((expectedDays, index) => {
+    REVIEW_INTERVALS_MINUTES.forEach((expectedMinutes, index) => {
       const result = scheduleNextReview(progress, "good", NOW);
 
       assert.equal(
         result.next_review_time,
-        daysLater(expectedDays),
-        `第 ${index + 1} 次连续答对，间隔应该是 ${expectedDays} 天`,
+        minutesLater(expectedMinutes),
+        `第 ${index + 1} 次连续答对，间隔应该是 ${expectedMinutes} 分钟`,
       );
-      assert.equal(
-        result.consecutive_correct,
-        index + 1,
-        "连击数应该跟着 +1",
-      );
+      assert.equal(result.consecutive_correct, index + 1, "连击数应该 +1");
 
       progress = result;
     });
   });
 
-  it("连击满 4 次（走完 30 天）后标记为「已掌握」", () => {
+  it("前三次答对的间隔都在当天之内（这是艾宾浩斯的关键）", () => {
     let progress: ReviewInput = createInitialProgress();
 
-    for (let i = 0; i < 4; i += 1) {
+    const firstThree: number[] = [];
+    for (let i = 0; i < 3; i += 1) {
       const result = scheduleNextReview(progress, "good", NOW);
-      // 前 3 次还是「认识」（2），第 4 次才升级为「已掌握」（3）
+      const diffMinutes =
+        (new Date(result.next_review_time).getTime() - NOW.getTime()) / MINUTE_MS;
+      firstThree.push(diffMinutes);
+      progress = result;
+    }
+
+    assert.deepEqual(firstThree, [5, 30, 12 * 60]);
+    assert.ok(
+      firstThree.every((minutes) => minutes < 24 * 60),
+      "前三次都应该在同一天内再见，把第一波遗忘压住",
+    );
+  });
+
+  it(`连击满 ${MASTERED_STREAK} 次（间隔排到 15 天）后标记为「已掌握」`, () => {
+    let progress: ReviewInput = createInitialProgress();
+
+    for (let i = 1; i <= MASTERED_STREAK; i += 1) {
+      const result = scheduleNextReview(progress, "good", NOW);
       assert.equal(
         result.familiarity,
-        i < 3 ? 2 : 3,
-        `第 ${i + 1} 次连续答对后的掌握程度不对`,
+        i < MASTERED_STREAK ? 2 : 3,
+        `第 ${i} 次连续答对后的掌握程度不对`,
       );
       progress = result;
     }
   });
 
-  it("超过最长阶梯后，一直沿用 60 天，不会越滚越大", () => {
-    const progress = progressAfter({ consecutive_correct: 10, familiarity: 3 });
-    const result = scheduleNextReview(progress, "good", NOW);
+  it("超过最长阶梯后一直沿用最长间隔，不会越滚越大", () => {
+    const longest =
+      REVIEW_INTERVALS_MINUTES[REVIEW_INTERVALS_MINUTES.length - 1];
 
-    assert.equal(result.next_review_time, daysLater(60));
+    const result = scheduleNextReview(
+      progressAfter({ consecutive_correct: 20, familiarity: 3 }),
+      "good",
+      NOW,
+    );
+
+    assert.equal(result.next_review_time, minutesLater(longest));
     assert.equal(result.familiarity, 3, "已掌握的词继续保持已掌握");
   });
 });
 
 describe("答错会打断连续答对", () => {
-  it("答对 2 次后点「不认识」，阶梯重新从第 1 档（3 天）开始", () => {
-    // 先连续答对 2 次
+  it("答对 3 次后点「不认识」，阶梯从头开始", () => {
     let progress: ReviewInput = createInitialProgress();
     progress = scheduleNextReview(progress, "good", NOW);
     progress = scheduleNextReview(progress, "good", NOW);
-    assert.equal(progress.consecutive_correct, 2);
+    progress = scheduleNextReview(progress, "good", NOW);
+    assert.equal(progress.consecutive_correct, 3);
 
-    // 第三次点「不认识」
     progress = scheduleNextReview(progress, "again", NOW);
     assert.equal(progress.consecutive_correct, 0);
 
-    // 再答对一次，间隔应该回到最短的 3 天，而不是接着 14 天
+    // 再答对一次，间隔应该回到最短的 5 分钟，而不是接着 1 天
     const afterRecovery = scheduleNextReview(progress, "good", NOW);
-    assert.equal(afterRecovery.next_review_time, daysLater(3));
+    assert.equal(afterRecovery.next_review_time, minutesLater(5));
     assert.equal(afterRecovery.consecutive_correct, 1);
   });
 });
@@ -197,24 +275,31 @@ describe("describeInterval：把间隔说成人话", () => {
     );
   });
 
-  it("10 分钟说「10 分钟后」", () => {
+  it("5 分钟说「5 分钟后」", () => {
     assert.equal(
-      describeInterval(NOW, new Date(NOW.getTime() + 10 * MINUTE_MS)),
-      "10 分钟后",
+      describeInterval(NOW, new Date(NOW.getTime() + 5 * MINUTE_MS)),
+      "5 分钟后",
     );
   });
 
-  it("2 小时说「2 小时后」", () => {
+  it("12 小时说「12 小时后」", () => {
     assert.equal(
-      describeInterval(NOW, new Date(NOW.getTime() + 2 * 60 * MINUTE_MS)),
-      "2 小时后",
+      describeInterval(NOW, new Date(NOW.getTime() + 12 * HOUR_MS)),
+      "12 小时后",
     );
   });
 
-  it("3 天说「3 天后」", () => {
+  it("2 天说「2 天后」", () => {
     assert.equal(
-      describeInterval(NOW, new Date(NOW.getTime() + 3 * DAY_MS)),
-      "3 天后",
+      describeInterval(NOW, new Date(NOW.getTime() + 2 * DAY_MS)),
+      "2 天后",
+    );
+  });
+
+  it("120 天说「120 天后」", () => {
+    assert.equal(
+      describeInterval(NOW, new Date(NOW.getTime() + 120 * DAY_MS)),
+      "120 天后",
     );
   });
 });
