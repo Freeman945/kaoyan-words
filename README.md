@@ -167,6 +167,62 @@ npm run dev
 代码在 `lib/weekly-report.ts`（内容生成 + 发送时机，27 个测试）、
 `lib/email.ts`（实际发送）、`lib/weekly-report-send.ts`（编排 + 防重复）。
 
+### 晚间提醒（晚上 10 点还没开始学就发邮件）
+
+**和周末周报最大的区别：这个必须用定时任务。**
+周报可以等你下次打开网站时补发；但「晚上 10 点还没开始」这个条件，
+如果你没打开网站恰恰是最需要提醒的时候，所以绕不开定时任务。
+
+#### 发送条件（三个全满足才发）
+
+| 条件 | 说明 |
+| --- | --- |
+| 今天还没发过提醒 | 定时任务重试也不会发第二封 |
+| 今天**一次都没作答** | 只要开始背了就不打扰 —— 这是「没开始」提醒，不是「没背够」提醒 |
+| 已经过了 22:00 | 防止手动调用把邮件提前发出去 |
+
+邮件里只有三行数字和一个链接（`待复习 / 新词 / 连续学习`），
+不写鼓励也不说教 —— 测试里直接禁止了「加油 / 坚持 / 别放弃 / 记得 / 哦 / 吧」这些词。
+
+#### 为什么它需要 secret key
+
+定时任务跑起来时**没有用户登录态**，按 RLS 规则读不到任何数据，
+所以用了 Supabase 的 **secret key**（能绕过所有安全策略）。
+这是本项目**唯一**一处绕过 RLS 的地方，限制得很死：
+
+- 环境变量 `SUPABASE_SECRET_KEY` **不带** `NEXT_PUBLIC_` 前缀 → 只存在服务器端
+- 只在 `lib/supabase/admin.ts` 里创建，只允许服务端代码 import
+- 接口自己校验 `CRON_SECRET`，否则任何人都能调它往你邮箱灌邮件
+- 中间件放行 `/api/cron`（否则定时任务会被重定向到登录页，**而且不报任何错**）
+
+#### 配置（需要手动做一次）
+
+| 环境变量 | 从哪来 |
+| --- | --- |
+| `SUPABASE_SECRET_KEY` | Supabase → Settings → API Keys → Secret keys |
+| `CRON_SECRET` | 自己随便生成一串随机字符（48 位左右） |
+| `RESEND_API_KEY` | Resend → API Keys |
+
+还要在 Supabase 执行一次 `supabase/add-study-reminder-log.sql`（建发送记录表），
+然后 **Redeploy**（环境变量是部署时注入的）。
+
+**调度**：`vercel.json` 里的 `crons` → `0 14 * * *`，即 14:00 UTC = **北京时间 22:00**。
+Vercel 免费版触发时间可能在指定小时内浮动，所以实际可能落在 22:00～23:00。
+
+#### 手动测试
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://kaoyan-words.vercel.app/api/cron/study-reminder?force=1"
+```
+
+带 `?force=1` 会跳过三个判断直接发一封（主题加 `[测试]` 前缀、不写发送记录），
+所以不用等到晚上 10 点就能验证链路。不带 `force` 时走真实逻辑。
+
+代码在 `lib/study-reminder.ts`（判断 + 邮件内容，19 个测试）、
+`lib/supabase/admin.ts`（管理员客户端）、
+`app/api/cron/study-reminder/route.ts`（编排 + 防重复）。
+
 ### 每天大概花多久
 
 看你的节奏：平均每天 20 个新词的话，熟练后**大约 15～25 分钟**。
