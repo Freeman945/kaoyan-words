@@ -76,8 +76,17 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  /** 上一次作答后的星级熟练度，跟在提示文字后面一起显示 */
-  const [feedbackStars, setFeedbackStars] = useState<number | null>(null);
+  /**
+   * 上一次作答让星级变了多少（+1 / −1 / 0）。
+   *
+   * 【为什么显示「变化量」而不是「当前几颗星」】
+   * 单词卡上方已经在显示**当前这个词**的星级了。如果下面提示行再显示一个
+   * 「几颗星」，两个数字挨在一起会被误读成同一个词的两种说法
+   * （用户看到「熟练度 ★☆☆☆☆」和「★★★★☆」并排，就会问
+   * 「同一个词怎么有两个熟练度」）。
+   * 显示 +1 / −1 就不会有歧义 —— 那是「刚才那一下的效果」，不是「现在几颗」。
+   */
+  const [feedbackStarDelta, setFeedbackStarDelta] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [finished, setFinished] = useState(false);
 
@@ -196,7 +205,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
               setFinished(false);
               setAnsweredCount(0);
               setFeedback(null);
-              setFeedbackStars(null);
+              setFeedbackStarDelta(0);
             }}
             // 「进度保留」这四个字保留着：不然会以为点一下会把学过的东西清掉
             className="text-xs text-zinc-400 transition-colors hover:text-zinc-700"
@@ -325,8 +334,8 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       `${RATING_LABELS[rating]} · ${gapLabel}` +
         (willRequeue ? " · 本轮重现" : ""),
     );
-    // 顺手把作答后的星级也显示出来，让你看到这个词涨了还是掉了
-    setFeedbackStars(starsOf(after));
+    // 记录星级的变化量，显示在提示行末尾
+    setFeedbackStarDelta(starsOf(after) - starsOf(before));
 
     // 立刻前进到下一个词；已经是最后一个就进入总结页
     const nextLength = queue.length + (willRequeue ? 1 : 0);
@@ -420,7 +429,18 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         ) : feedback !== null ? (
           <>
             <span className="tabular-nums">{feedback}</span>
-            {feedbackStars !== null && <StarRating stars={feedbackStars} />}
+            {/* 只显示变化量。0 就不写 —— 没变化没什么可说的 */}
+            {feedbackStarDelta !== 0 && (
+              <span
+                className={
+                  "tabular-nums " +
+                  (feedbackStarDelta > 0 ? "text-amber-600" : "text-zinc-500")
+                }
+              >
+                {feedbackStarDelta > 0 ? "+" : "−"}
+                {Math.abs(feedbackStarDelta)} 星
+              </span>
+            )}
           </>
         ) : null}
       </div>
