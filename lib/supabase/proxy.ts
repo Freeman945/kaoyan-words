@@ -37,6 +37,19 @@ const PUBLIC_PATHS = [
   "/diagnostics",
   "/preview",
   "/api/cron",
+  /**
+   * PWA 清单。
+   *
+   * 【为什么必须放行 —— 和 /api/cron 是同一类坑】
+   * 浏览器在你还没登录时就会去取这个文件（否则没法判断"这个网站能不能装"）。
+   * 如果被中间件重定向到登录页，浏览器拿到的是一段 HTML 而不是 JSON →
+   * 它就不认为这是个可安装的应用 → 「添加到主屏幕」的安装入口不出现。
+   * 而且这个失败**完全不报错**，只是"装不上"，很难查。
+   *
+   * 图标（/icon-*.png、/apple-icon.png）不用列在这里：
+   * 中间件的 matcher 已经排除了图片扩展名。
+   */
+  "/manifest.webmanifest",
 ];
 
 function isPublicPath(pathname: string): boolean {

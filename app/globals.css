@@ -21,6 +21,12 @@ html {
 
 body {
   font-family: var(--font-sans);
+  /*
+   * 刘海屏 / 挖孔屏：底部那条"home indicator"横条会盖住内容。
+   * 留出安全区高度，背单词页底部那三个按钮才不会被挡住。
+   * 大多数手机上这个值是 0，不会多出空白。
+   */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* 数字统一用等宽字形，表格和统计里不会跳来跳去 */
