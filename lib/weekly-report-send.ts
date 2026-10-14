@@ -27,6 +27,7 @@ import {
   isWeeklyReportDue,
   summarizeWeek,
   weekStartOf,
+  type WeeklyReport,
 } from "@/lib/weekly-report";
 
 export type WeeklyReportOutcome =
@@ -73,46 +74,12 @@ export async function sendWeeklyReportIfDue(params: {
     return { status: "not-due" };
   }
 
-  // ── 3. 把数据取齐 ──
-  const [stats, pace, focusWords, activity] = await Promise.all([
-    getStats(userId),
-    getPace(userId),
-    getFocusWords(userId, 3),
-    loadWeekActivity(userId, weekStart, now, timeZone),
-  ]);
+  // ── 3. 把数据取齐并组装成邮件内容 ──
+  const report = await composeWeeklyReport(userId, weekStart, now, timeZone);
 
-  if (activity === null) {
+  if (report === null) {
     return { status: "skipped", reason: "读取本周学习记录失败。" };
   }
-
-  // 只列到今天为止 —— 周六发的周报里不该出现一行永远为 0 的「周日」
-  const elapsedDays = daysElapsedInWeek(now, timeZone);
-
-  const report = buildWeeklyReport({
-    weekStart,
-    weekEnd: localDateKey(now, timeZone),
-    dailyReviewed: activity.dailyReviewed.slice(0, elapsedDays),
-    dailyNewWords: activity.dailyNewWords.slice(0, elapsedDays),
-    streakDays: stats.streakDays,
-    // stats.totalWords 是「有进度记录的词」，也就是已经学过的词
-    learnedWords: stats.totalWords,
-    // 词库总数 = 学过的 + 还没学的（pace 里算好了没学的那部分）
-    totalWords: stats.totalWords + pace.remainingWords,
-    masteredWords: stats.masteredWords,
-    weakWords: focusWords.map((item) => ({
-      word: item.word.word,
-      meaning: item.word.meaning,
-      wrongCount: item.progress.wrong_count,
-      stars: calculateStars(
-        item.progress.correct_count,
-        item.progress.wrong_count,
-      ),
-    })),
-    avgPerDay: pace.avgPerDay,
-    projectedFinishDate: pace.projectedFinishDate,
-    daysUntilExam: pace.daysUntilExam,
-    requiredPerDay: pace.requiredPerDay,
-  });
 
   // ── 4. 没配密钥就别发，也别占位（配好之后还能补发这一周） ──
   if (!isEmailConfigured()) {
@@ -192,4 +159,95 @@ export async function loadWeekActivity(
     weekStartDate,
     timeZone,
   );
+}
+
+/**
+ * 把周报需要的数据取齐，并组装成邮件内容。
+ *
+ * 抽出来是为了让「周末自动发」和「手动测试发」共用同一套逻辑 ——
+ * 否则测试时看到的内容和真正收到的不一样，那就白测了。
+ */
+export async function composeWeeklyReport(
+  userId: string,
+  weekStart: string,
+  now: Date,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): Promise<WeeklyReport | null> {
+  const [stats, pace, focusWords, activity] = await Promise.all([
+    getStats(userId),
+    getPace(userId),
+    getFocusWords(userId, 3),
+    loadWeekActivity(userId, weekStart, now, timeZone),
+  ]);
+
+  if (activity === null) return null;
+
+  // 只列到今天为止 —— 周六发的周报里不该出现一行永远为 0 的「周日」
+  const elapsedDays = daysElapsedInWeek(now, timeZone);
+
+  return buildWeeklyReport({
+    weekStart,
+    weekEnd: localDateKey(now, timeZone),
+    dailyReviewed: activity.dailyReviewed.slice(0, elapsedDays),
+    dailyNewWords: activity.dailyNewWords.slice(0, elapsedDays),
+    streakDays: stats.streakDays,
+    // stats.totalWords 是「有进度记录的词」，也就是已经学过的词
+    learnedWords: stats.totalWords,
+    // 词库总数 = 学过的 + 还没学的（pace 里算好了没学的那部分）
+    totalWords: stats.totalWords + pace.remainingWords,
+    masteredWords: stats.masteredWords,
+    weakWords: focusWords.map((item) => ({
+      word: item.word.word,
+      meaning: item.word.meaning,
+      wrongCount: item.progress.wrong_count,
+      stars: calculateStars(
+        item.progress.correct_count,
+        item.progress.wrong_count,
+      ),
+    })),
+    avgPerDay: pace.avgPerDay,
+    projectedFinishDate: pace.projectedFinishDate,
+    daysUntilExam: pace.daysUntilExam,
+    requiredPerDay: pace.requiredPerDay,
+  });
+}
+
+/**
+ * 立刻发一封周报（不管是不是周末，也不占位）。
+ *
+ * 专门用于「测试发送」：配好邮件服务后马上能确认链路通了，不用等到周六。
+ * 它**不写 weekly_report_log**，所以不会影响「一周一封」的判断 ——
+ * 周末该发的那封照发不误。主题前面加了 [测试] 前缀，免得和真周报混淆。
+ */
+export async function sendWeeklyReportNow(params: {
+  userId: string;
+  email: string;
+}): Promise<{ ok: true; subject: string } | { ok: false; error: string }> {
+  if (!isEmailConfigured()) {
+    return { ok: false, error: "还没有配置 RESEND_API_KEY，所以发不出去。" };
+  }
+
+  const now = new Date();
+  const timeZone = DEFAULT_TIME_ZONE;
+  const weekStart = weekStartOf(now, timeZone);
+
+  const report = await composeWeeklyReport(
+    params.userId,
+    weekStart,
+    now,
+    timeZone,
+  );
+
+  if (report === null) {
+    return { ok: false, error: "读取本周学习记录失败。" };
+  }
+
+  const result = await sendEmail({
+    to: params.email,
+    subject: `[测试] ${report.subject}`,
+    text: report.text,
+    html: report.html,
+  });
+
+  return result.ok ? { ok: true, subject: report.subject } : result;
 }

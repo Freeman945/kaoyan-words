@@ -9,6 +9,7 @@ import { suggestDailyNewWordGoal } from "@/lib/pace";
 import { DEFAULT_TIME_ZONE } from "@/lib/stats";
 import { weekdayIndex } from "@/lib/weekly-report";
 import { sendWeeklyReportIfDue } from "@/lib/weekly-report-send";
+import { TestReportButton } from "@/components/TestReportButton";
 import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
 
 export const metadata: Metadata = {
@@ -376,6 +377,15 @@ export default async function Home() {
           </div>
         </>
       )}
+
+      {/*
+        测试发送按钮。
+        真正的周报只在周末发，配好邮件服务后要等好几天才知道有没有配错。
+        这个按钮让你随时验证整条链路。
+      */}
+      <div className="pt-2">
+        <TestReportButton />
+      </div>
 
       <footer className="flex items-center justify-between pt-2 text-xs text-slate-400">
         <Link href="/diagnostics" className="underline underline-offset-2">
