@@ -27,6 +27,7 @@ import {
 import {
   createInitialProgress,
   isTemporarilyQuiet,
+  recentAnswerCutoff,
   scheduleNextReview,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
@@ -100,26 +101,52 @@ export async function getDueEntries(
   limit: number = REVIEW_QUEUE_LIMIT,
 ): Promise<StudyQueueEntry[]> {
   const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("user_word_progress")
-    // 一次查询把进度和单词一起取回来：words(*) 是 PostgREST 的关联语法，
-    // 它会根据外键自动把对应的单词行嵌进来。
-    // 这种写法能不能被认识，靠的就是 types/database.ts 里声明的 Relationships。
-    .select("*, words(*)")
-    .eq("user_id", userId)
-    .lte("next_review_time", new Date().toISOString())
-    .order("next_review_time", { ascending: true })
-    .limit(limit);
-
-  if (error !== null) {
-    throw new Error(`读取今日复习队列失败：${error.message}`);
-  }
-
   const now = new Date();
 
+  const [dueResult, recentResult] = await Promise.all([
+    supabase
+      .from("user_word_progress")
+      // 一次查询把进度和单词一起取回来：words(*) 是 PostgREST 的关联语法，
+      // 它会根据外键自动把对应的单词行嵌进来。
+      // 这种写法能不能被认识，靠的就是 types/database.ts 里声明的 Relationships。
+      .select("*, words(*)")
+      .eq("user_id", userId)
+      .lte("next_review_time", now.toISOString())
+      .order("next_review_time", { ascending: true })
+      .limit(limit),
+
+    /*
+     * 最近 30 分钟答过的单词 id。
+     *
+     * 【为什么要把它们排除掉】
+     * 答过的词下次复习时间只有 1~5 分钟（艾宾浩斯前三档），
+     * 所以「退出去再进来」时它们已经到期、会排到队首 ——
+     * 结果是刚背过的词要重背一遍，真正想继续的新词反而在后面。
+     *
+     * 排除之后，队列会从「你真正停下的那个位置」继续。
+     * 当轮内的重排不受影响（那个是前端做的）。
+     */
+    supabase
+      .from("review_logs")
+      .select("word_id")
+      .eq("user_id", userId)
+      .gte("reviewed_at", recentAnswerCutoff(now).toISOString()),
+  ]);
+
+  if (dueResult.error !== null) {
+    throw new Error(`读取今日复习队列失败：${dueResult.error.message}`);
+  }
+  if (recentResult.error !== null) {
+    // 这个查询失败不该让整个页面打不开 —— 只是失去「刚刚答过」的保护
+    console.error("[progress] 读取最近作答记录失败", recentResult.error.message);
+  }
+
+  const recentWordIds = new Set(
+    (recentResult.data ?? []).map((row) => row.word_id),
+  );
+
   return (
-    (data ?? [])
+    (dueResult.data ?? [])
       /*
        * 「满星且连击够」的词暂时不考。
        *
@@ -131,6 +158,8 @@ export async function getDueEntries(
        * 原因见 isTemporarilyQuiet 的注释。
        */
       .filter((row) => !isTemporarilyQuiet(row, now))
+      // 刚刚答过的词，这次不进队列（见上面最近的作答记录的说明）
+      .filter((row) => !recentWordIds.has(row.word_id))
       .map((row) => ({
         word: row.words,
         progress: {

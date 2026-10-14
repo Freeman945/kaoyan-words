@@ -25,6 +25,8 @@ import {
   MAX_IN_SESSION_REPEATS,
   MAX_STARS,
   MIN_STARS,
+  RECENT_ANSWER_GRACE_MINUTES,
+  recentAnswerCutoff,
   REVIEW_INTERVALS_MINUTES,
   scheduleNextReview,
   shouldRequeueInSession,
@@ -546,5 +548,50 @@ describe("isTemporarilyQuiet：满星且连击够的词暂时不考", () => {
       assert.ok(MASTERED_COOLDOWN_DAYS > 0);
       assert.ok(MASTERED_QUIET_STREAK >= 3, "门槛低于 3 会让新词刚满星就被跳过");
     });
+  });
+});
+
+/**
+ * 「刚刚答过」的保护期。
+ *
+ * 来自用户反馈：「我背单词退出去一下再回来就不是原来那个单词了」。
+ * 原因是答过的词下次复习时间只有 1~5 分钟，退出去几分钟再进来时
+ * 它们已经到期、排到了队首，于是刚背过的词要重背一遍。
+ */
+describe("recentAnswerCutoff：刚刚答过的词暂时不进队列", () => {
+  it("界线正好是 30 分钟前", () => {
+    assert.equal(RECENT_ANSWER_GRACE_MINUTES, 30);
+    assert.equal(
+      recentAnswerCutoff(NOW).getTime(),
+      NOW.getTime() - 30 * MINUTE_MS,
+    );
+  });
+
+  it("1 分钟前答过的落在界线之内（会被排除）", () => {
+    const answered = new Date(NOW.getTime() - 1 * MINUTE_MS);
+    assert.ok(
+      answered.getTime() > recentAnswerCutoff(NOW).getTime(),
+      "刚答过的词应该落在保护期内",
+    );
+  });
+
+  it("29 分钟前答过的仍在界线之内", () => {
+    const answered = new Date(NOW.getTime() - 29 * MINUTE_MS);
+    assert.ok(answered.getTime() > recentAnswerCutoff(NOW).getTime());
+  });
+
+  it("31 分钟前答过的已经出了界线（会正常排进队列）", () => {
+    const answered = new Date(NOW.getTime() - 31 * MINUTE_MS);
+    assert.ok(
+      answered.getTime() < recentAnswerCutoff(NOW).getTime(),
+      "超过保护期就该按正常的艾宾浩斯时间复习",
+    );
+  });
+
+  it("保护期不能太长，否则艾宾浩斯前几档永远排不进来", () => {
+    assert.ok(
+      RECENT_ANSWER_GRACE_MINUTES <= 60,
+      "超过一小时的话，1 分钟 / 5 分钟 / 15 分钟那三档就形同虚设了",
+    );
   });
 });
