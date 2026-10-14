@@ -12,15 +12,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   AGAIN_INTERVAL_MINUTES,
+  calculateStars,
   createInitialProgress,
   describeInterval,
   describeReviewPlan,
+  INITIAL_STARS,
   isDue,
   MASTERED_STREAK,
   MAX_IN_SESSION_REPEATS,
+  MAX_STARS,
+  MIN_STARS,
   REVIEW_INTERVALS_MINUTES,
   scheduleNextReview,
   shouldRequeueInSession,
+  starsOf,
   type ReviewInput,
 } from "./spaced-repetition";
 
@@ -365,5 +370,80 @@ describe("shouldRequeueInSession：短间隔的词要在本轮内再考一次", 
       true,
       "刚才不会的词必须在本轮里再考一次，不能留到明天",
     );
+  });
+});
+
+/**
+ * 星级熟练度（0~5 颗）—— 规则由用户定:
+ *   新词 3 颗，认识 +1，不认识 -1，模糊不动，范围 0~5。
+ *
+ * 这套规则不需要新增数据库字段: 因为「模糊」两边都不计数，
+ * 所以 `3 + 答对次数 - 答错次数` 正好等价于上面这套加减法。
+ */
+describe("星级熟练度（0~5 颗）", () => {
+  it("新词是 3 颗星", () => {
+    assert.equal(INITIAL_STARS, 3);
+    assert.equal(calculateStars(0, 0), 3);
+  });
+
+  it("点一次「认识」加一颗", () => {
+    assert.equal(calculateStars(1, 0), 4);
+    assert.equal(calculateStars(2, 0), 5);
+  });
+
+  it("点一次「不认识」减一颗", () => {
+    assert.equal(calculateStars(0, 1), 2);
+    assert.equal(calculateStars(0, 2), 1);
+    assert.equal(calculateStars(0, 3), 0);
+  });
+
+  it("上限 5 颗，不会无限涨", () => {
+    assert.equal(MAX_STARS, 5);
+    assert.equal(calculateStars(10, 0), MAX_STARS);
+  });
+
+  it("下限 0 颗，不会变成负数", () => {
+    assert.equal(MIN_STARS, 0);
+    assert.equal(calculateStars(0, 10), MIN_STARS);
+  });
+
+  it("点「模糊」不加不减（因为模糊两边都不计数）", () => {
+    const before = progressAfter({ correct_count: 2, wrong_count: 1 });
+    const after = scheduleNextReview(before, "hard", NOW);
+
+    assert.equal(after.correct_count, before.correct_count);
+    assert.equal(after.wrong_count, before.wrong_count);
+    assert.equal(
+      calculateStars(after.correct_count, after.wrong_count),
+      calculateStars(before.correct_count, before.wrong_count),
+      "模糊之后星级应该原封不动",
+    );
+  });
+
+  it("真的是「点一次动一颗」：连着点认识会一路涨到顶", () => {
+    let progress: ReviewInput = createInitialProgress();
+    const stars: number[] = [starsOf(progress)];
+
+    for (let i = 0; i < 3; i += 1) {
+      progress = scheduleNextReview(progress, "good", NOW);
+      stars.push(starsOf(progress));
+    }
+
+    assert.deepEqual(stars, [3, 4, 5, 5], "涨到 5 颗就停住");
+  });
+
+  it("答错会把星级拉下来", () => {
+    let progress: ReviewInput = createInitialProgress();
+    progress = scheduleNextReview(progress, "good", NOW); // 4 颗
+    progress = scheduleNextReview(progress, "good", NOW); // 5 颗
+    assert.equal(starsOf(progress), 5);
+
+    progress = scheduleNextReview(progress, "again", NOW); // 掉回 4 颗
+    assert.equal(starsOf(progress), 4);
+  });
+
+  it("starsOf 能从进度记录上直接取星级", () => {
+    assert.equal(starsOf({ correct_count: 3, wrong_count: 1 }), 5);
+    assert.equal(starsOf({ correct_count: 0, wrong_count: 0 }), 3);
   });
 });

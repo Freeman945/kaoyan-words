@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SetupNotice } from "@/components/SetupNotice";
+import { StarRating } from "@/components/StarRating";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
 import { getFocusWords } from "@/lib/progress";
 import { FOCUS_SCORE_THRESHOLD } from "@/lib/focus";
+import { calculateStars } from "@/lib/spaced-repetition";
 import { FAMILIARITY_LABELS, type Familiarity } from "@/types";
 
 export const metadata: Metadata = {
@@ -128,13 +130,22 @@ export default async function FocusPage() {
                         {item.word.part_of_speech}
                       </span>
                     )}
-                  <span
-                    className={
-                      "ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium " +
-                      FAMILIARITY_STYLE[item.progress.familiarity]
-                    }
-                  >
-                    {FAMILIARITY_LABELS[item.progress.familiarity]}
+                  <span className="ml-auto flex items-center gap-2">
+                    {/* 星级熟练度：0~5 颗，新词从 3 颗起步 */}
+                    <StarRating
+                      stars={calculateStars(
+                        item.progress.correct_count,
+                        item.progress.wrong_count,
+                      )}
+                    />
+                    <span
+                      className={
+                        "rounded-full px-2.5 py-0.5 text-xs font-medium " +
+                        FAMILIARITY_STYLE[item.progress.familiarity]
+                      }
+                    >
+                      {FAMILIARITY_LABELS[item.progress.familiarity]}
+                    </span>
                   </span>
                 </div>
 

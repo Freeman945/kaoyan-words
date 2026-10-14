@@ -163,6 +163,51 @@ export function createInitialProgress(): ReviewInput {
   };
 }
 
+/** 星级熟练度的取值范围 */
+export const MIN_STARS = 0;
+export const MAX_STARS = 5;
+
+/**
+ * 新词的起始星级。
+ * 取中间值 3：既不说「这个字我会」，也不说「这个字我不会」，
+ * 因为刚见到它的时候本来就无从判断。
+ */
+export const INITIAL_STARS = 3;
+
+/**
+ * 由「答对次数」和「答错次数」算出星级熟练度。
+ *
+ * 规则（用户定的）：
+ *   新词           → 3 颗（基础熟练度）
+ *   点「认识」      → +1 颗
+ *   点「不认识」    → -1 颗
+ *   点「模糊」      → 不加不减
+ *   范围           → 0 ~ 5 颗
+ *
+ * 【为什么不用单独存一列】
+ * 「模糊」两边都不计数（它既不增加 correct_count 也不增加 wrong_count），
+ * 所以 `3 + 答对次数 - 答错次数` 正好等价于「认识 +1 / 不认识 -1 / 模糊不动」。
+ * 这两个计数数据库里本来就有，所以**不需要改表结构、也不用迁移历史数据**。
+ *
+ * @param correctCount 累计答对次数（只统计「认识」）
+ * @param wrongCount 累计答错次数（只统计「不认识」）
+ */
+export function calculateStars(
+  correctCount: number,
+  wrongCount: number,
+): number {
+  const raw = INITIAL_STARS + correctCount - wrongCount;
+  return Math.min(MAX_STARS, Math.max(MIN_STARS, raw));
+}
+
+/** 从一条进度记录上算出星级，省得每次都写两个字段 */
+export function starsOf(progress: {
+  correct_count: number;
+  wrong_count: number;
+}): number {
+  return calculateStars(progress.correct_count, progress.wrong_count);
+}
+
 /**
  * 把「第几档」换算成实际间隔分钟数。
  * 超出范围就取最后一档（背得再熟也不会无限期拖下去）。

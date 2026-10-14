@@ -12,12 +12,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RatingButtons } from "@/components/RatingButtons";
+import { StarRating } from "@/components/StarRating";
 import { WordCard } from "@/components/WordCard";
 import {
   createInitialProgress,
   describeInterval,
   scheduleNextReview,
   shouldRequeueInSession,
+  starsOf,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
 import {
@@ -74,6 +76,8 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  /** 上一次作答后的星级熟练度，跟在提示文字后面一起显示 */
+  const [feedbackStars, setFeedbackStars] = useState<number | null>(null);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [finished, setFinished] = useState(false);
 
@@ -186,6 +190,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
               setFinished(false);
               setAnsweredCount(0);
               setFeedback(null);
+              setFeedbackStars(null);
             }}
             className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
           >
@@ -318,6 +323,8 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       `${RATING_LABELS[rating]} · ${gapLabel}` +
         (willRequeue ? "（本轮还会再考一次）" : ""),
     );
+    // 顺手把作答后的星级也显示出来，让你看到这个词涨了还是掉了
+    setFeedbackStars(starsOf(after));
 
     // 立刻前进到下一个词；已经是最后一个就进入总结页
     const nextLength = queue.length + (willRequeue ? 1 : 0);
@@ -391,12 +398,15 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       */}
       <div
         aria-live="polite"
-        className="min-h-[20px] text-center text-sm"
+        className="flex min-h-[20px] items-center justify-center gap-2 text-center text-sm"
       >
         {pendingCount > 0 ? (
           <span className="text-slate-400">同步中…</span>
         ) : feedback !== null ? (
-          <span className="text-slate-500">{feedback}</span>
+          <>
+            <span className="text-slate-500">{feedback}</span>
+            {feedbackStars !== null && <StarRating stars={feedbackStars} />}
+          </>
         ) : null}
       </div>
 
