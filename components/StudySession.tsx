@@ -50,11 +50,25 @@ const RATINGS: ReviewRating[] = ["again", "hard", "good"];
 export function StudySession({ items, onRate }: StudySessionProps) {
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  /** 正在后台同步的作答数量，用来显示「同步中…」 */
+  const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [finished, setFinished] = useState(false);
+
+  /**
+   * 保存失败、还没补上的作答。
+   *
+   * 【为什么要记这个】
+   * 这个组件现在是「点了立刻翻到下一个词，保存放到后台做」——
+   * 这样界面不会再等网络（每点一次要等半秒，背 20 个词就是 10 秒）。
+   * 但代价是：失败时不能把人拦在当场。所以失败的要记下来，
+   * 在页面顶部明确提示，并给一个「重试」按钮，绝不能悄悄丢掉。
+   */
+  const [failedSaves, setFailedSaves] = useState<
+    Array<{ wordId: number; rating: ReviewRating }>
+  >([]);
 
   // 每个单词当前的学习进度。初始值由外面传进来（正式页面会用数据库里的真实进度）。
   const [progressMap, setProgressMap] = useState<Record<number, ReviewInput>>(
@@ -69,7 +83,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (finished || isSaving) return;
+      if (finished) return;
 
       // 空格 = 显示释义
       if (event.code === "Space" && !revealed) {
@@ -184,34 +198,64 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     }),
   ) as Record<ReviewRating, string>;
 
-  async function handleRate(rating: ReviewRating) {
-    if (isSaving || currentItem === undefined) return;
+  /** 把一条失败记录加进待重试列表（同一条不重复添加） */
+  function markFailed(wordId: number, rating: ReviewRating, message: string) {
+    setError(message);
+    setFailedSaves((prev) =>
+      prev.some((item) => item.wordId === wordId && item.rating === rating)
+        ? prev
+        : [...prev, { wordId, rating }],
+    );
+  }
+
+  /** 把一次作答交给服务器保存。失败只记录，不阻塞界面。 */
+  async function persistRating(wordId: number, rating: ReviewRating) {
+    setPendingCount((count) => count + 1);
+    try {
+      const result = await onRate(wordId, rating);
+      if (!result.ok) {
+        markFailed(wordId, rating, result.error);
+        return;
+      }
+      // 成功：把它从待重试列表里移掉
+      setFailedSaves((prev) =>
+        prev.filter(
+          (item) => !(item.wordId === wordId && item.rating === rating),
+        ),
+      );
+    } catch (cause) {
+      markFailed(
+        wordId,
+        rating,
+        cause instanceof Error ? cause.message : "保存失败，请检查网络。",
+      );
+    } finally {
+      setPendingCount((count) => count - 1);
+    }
+  }
+
+  /**
+   * 作答。
+   *
+   * 【这里做过一次重要改动：先翻页，再保存】
+   * 原来的写法是「等服务器确认保存成功，才翻到下一个词」。
+   * 那意味着每点一次都要等一次完整往返：
+   *   浏览器 → 服务器 → 数据库(4 次串行) → 返回，大约半秒。
+   * 背 20 个词就白等 10 秒，感觉就是「卡」。
+   *
+   * 现在改成：立刻更新界面并翻页，保存丢到后台去做。
+   * 点击的反馈变成瞬时的，跟网速无关。
+   * 代价是失败时不能把人拦在当场 —— 所以失败会被记下来，
+   * 在页面顶部明确提示并提供「重试」，绝不悄悄丢掉。
+   */
+  function handleRate(rating: ReviewRating) {
+    if (currentItem === undefined) return;
 
     const now = new Date();
     const before = progressMap[currentItem.word.id] ?? createInitialProgress();
     const after = scheduleNextReview(before, rating, now);
 
-    setIsSaving(true);
     setError(null);
-
-    try {
-      const result = await onRate(currentItem.word.id, rating);
-
-      // 保存失败就停在这个词，不要往下走
-      if (!result.ok) {
-        setError(result.error);
-        setIsSaving(false);
-        return;
-      }
-    } catch (cause) {
-      // 断网之类的意外情况，同样停住不动
-      setError(
-        cause instanceof Error ? cause.message : "保存失败，请检查网络后重试。",
-      );
-      setIsSaving(false);
-      return;
-    }
-
     setProgressMap((prev) => ({ ...prev, [currentItem.word.id]: after }));
     setFeedback(
       `${RATING_LABELS[rating]} · 下次复习：${describeInterval(
@@ -220,14 +264,25 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       )}`,
     );
     setAnsweredCount((count) => count + 1);
-    setIsSaving(false);
 
-    // 前进到下一个词；已经是最后一个就进入总结页
+    // 后台保存：故意不 await，界面不等它
+    void persistRating(currentItem.word.id, rating);
+
+    // 立刻前进到下一个词；已经是最后一个就进入总结页
     if (index + 1 >= items.length) {
       setFinished(true);
     } else {
       setIndex(index + 1);
       setRevealed(false);
+    }
+  }
+
+  /** 把之前没保存成功的作答重新提交一遍 */
+  async function retryFailedSaves() {
+    const pending = [...failedSaves];
+    setError(null);
+    for (const item of pending) {
+      await persistRating(item.wordId, item.rating);
     }
   }
 
@@ -269,7 +324,6 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       {revealed && (
         <RatingButtons
           onRate={(rating) => void handleRate(rating)}
-          disabled={isSaving}
           hints={hints}
         />
       )}
@@ -283,20 +337,46 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         aria-live="polite"
         className="min-h-[20px] text-center text-sm"
       >
-        {isSaving ? (
-          <span className="text-slate-400">保存中…</span>
+        {pendingCount > 0 ? (
+          <span className="text-slate-400">同步中…</span>
         ) : feedback !== null ? (
           <span className="text-slate-500">{feedback}</span>
         ) : null}
       </div>
 
-      {error !== null && (
-        <p
+      {/*
+        保存失败的提示。
+        因为现在是「先翻页、后保存」，失败时没法把人拦在当场，
+        所以这里必须显眼地告诉用户「有一些没存上」，并给一个重试按钮。
+        换句话说：界面变快了，但不能因此悄悄丢数据。
+      */}
+      {failedSaves.length > 0 && (
+        <div
           role="alert"
-          className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800"
+          className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
         >
-          {error}
-        </p>
+          <p className="font-medium">
+            有 {failedSaves.length} 个词没能保存成功
+          </p>
+          <p className="mt-1 text-xs leading-5">
+            这些词的作答还没记进数据库。请检查网络后点下面的按钮重试 ——
+            不重试的话，这几个词下次还会当成没背过。
+          </p>
+          {error !== null && (
+            <p className="mt-1 text-xs opacity-80">{error}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => void retryFailedSaves()}
+            className={
+              "mt-2 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-medium text-white " +
+              "transition hover:bg-rose-800 disabled:opacity-50"
+            }
+            disabled={pendingCount > 0}
+          >
+            {pendingCount > 0 ? "重试中…" : "重试保存"}
+          </button>
+        </div>
       )}
     </div>
   );
