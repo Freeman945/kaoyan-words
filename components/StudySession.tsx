@@ -377,6 +377,16 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         </div>
       </div>
 
+      {/*
+        当前这个词的星级熟练度。
+        必须在「作答之前」就显示出来 —— 一个新词第一次出现在你面前时，
+        就应该看到它是 3 颗星（基础熟练度），而不是等答完才有星级。
+      */}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-slate-400">熟练度</span>
+        <StarRating stars={starsOf(currentProgress)} showNumber />
+      </div>
+
       <WordCard
         word={currentItem.word}
         revealed={revealed}

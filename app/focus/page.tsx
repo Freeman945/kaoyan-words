@@ -7,21 +7,12 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { getFocusWords } from "@/lib/progress";
 import { FOCUS_SCORE_THRESHOLD } from "@/lib/focus";
 import { calculateStars } from "@/lib/spaced-repetition";
-import { FAMILIARITY_LABELS, type Familiarity } from "@/types";
 
 export const metadata: Metadata = {
   title: "重点词 · 考研英语背单词",
 };
 
 export const dynamic = "force-dynamic";
-
-/** 掌握程度对应的颜色（越不熟越刺眼，方便一眼扫出问题） */
-const FAMILIARITY_STYLE: Record<Familiarity, string> = {
-  0: "bg-rose-100 text-rose-800",
-  1: "bg-amber-100 text-amber-800",
-  2: "bg-slate-100 text-slate-600",
-  3: "bg-emerald-100 text-emerald-800",
-};
 
 export default async function FocusPage() {
   if (!isSupabaseConfigured()) {
@@ -130,22 +121,20 @@ export default async function FocusPage() {
                         {item.word.part_of_speech}
                       </span>
                     )}
-                  <span className="ml-auto flex items-center gap-2">
-                    {/* 星级熟练度：0~5 颗，新词从 3 颗起步 */}
+                  {/*
+                    星级熟练度：0~5 颗，新词从 3 颗起步。
+                    这里刻意不再显示旧的「不认识 / 模糊 / 认识 / 已掌握」
+                    分类标签 —— 它和星级会打架（新词明明 3 颗星，
+                    旧标签却写「不认识」），两个说法并存只会让人困惑。
+                  */}
+                  <span className="ml-auto">
                     <StarRating
                       stars={calculateStars(
                         item.progress.correct_count,
                         item.progress.wrong_count,
                       )}
+                      showNumber
                     />
-                    <span
-                      className={
-                        "rounded-full px-2.5 py-0.5 text-xs font-medium " +
-                        FAMILIARITY_STYLE[item.progress.familiarity]
-                      }
-                    >
-                      {FAMILIARITY_LABELS[item.progress.familiarity]}
-                    </span>
                   </span>
                 </div>
 
