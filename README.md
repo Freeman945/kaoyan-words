@@ -107,22 +107,51 @@
 
 ## 词库
 
-现在的 40 个词是当初跑通流程用的**测试数据**（`data/words-seed.csv`），
-**不是真正的考研词库**。所以首页「可学新词」最多就是 40 个 —— 这是词库总量，
-不是每日上限（代码里的队列上限是 200，且不设每日配额）。
+### 考研大纲词汇 5490 词
 
-想扩充到几千个词的时候，需要一个**带音标、词性、例句**的词表。
-只有「单词 + 释义」的表不建议用：单词卡上音标和例句的位置会一直是空的，
-背起来很干。
+| | |
+| --- | --- |
+| 来源 | [LinXueyuanStdio/DictionaryData](https://github.com/LinXueyuanStdio/DictionaryData) |
+| 许可证 | **Apache License 2.0** —— 个人、商用都可以，需保留版权声明 |
+| 选用的书 | 《2017 考研大纲词汇（黄皮书）》5581 词，去掉查不到释义的，实际 **5490 词** |
+| 有 | 单词 · **英式音标** · 中文释义（带词性）· 难度 |
+| 缺 | **例句** —— 数据源没有，所以单词卡上例句位置是空的 |
 
-扩充的方式：
+### 怎么导入
 
-```bash
-npm run import:words -- data/你的词表.csv
+```
+Supabase 控制台 → SQL Editor → 新建查询
+打开 supabase/seed-kaoyan.sql → 全选复制 → 粘贴 → Run
 ```
 
-CSV 的列顺序见 `lib/words.ts` 里的 `WORD_CSV_COLUMNS`，
-生成的 SQL 粘到 Supabase 的 SQL Editor 执行即可。
+**可以重复执行**：用了 `insert ... select ... where not exists`，
+已存在的单词自动跳过，**完全不删任何东西**，学习进度不受影响。
+
+> 原来的 40 个测试词（`data/words-seed.csv`）保留着，它们的例句更完整，
+> 会被自动跳过、不会被覆盖。
+
+### 换一本书 / 换一份数据
+
+```bash
+python scripts/dictdata-to-csv.py <解压后的 DictionaryData 目录>
+npx tsx scripts/check-seed-sql.ts supabase/seed-kaoyan.sql   # ← 先本地验一遍
+```
+
+`scripts/dictdata-to-csv.py` 顶部有 `BOOK_ID`，改那一行就能换成别的词表：
+
+| book id | 书名 | 词数 |
+| --- | --- | --- |
+| `58b28425cbb2de3860e9e5b2` | 2017 考研大纲词汇（黄皮书） | 5581 ← 默认 |
+| `cfecdb276f634854f3ef915e` | 2015 考研英语词汇红宝书 | 6753 |
+| `fe131d7f5a6b38b23cc96731` | 2016 恋练有词考研英语词汇 | 5451 |
+| `2b44928ae11fb9384c4cf387` | 2015 考研词汇乱序版（俞敏洪） | 6997 |
+
+> 🔴 **生成 SQL 后一定要先跑 `check-seed-sql.ts`。**
+> 它会在本地 PGlite（WASM 版的真 PostgreSQL）里把整份 SQL 执行一遍，
+> 顺便检查有没有空音标、重复执行会不会产生重复数据。
+> 这个习惯当场就抓到一个真 bug：源数据的难度是 0~10，
+> 而我们的表只允许 1~5，不转换的话整条 insert 会因为 check 约束失败。
+> 如果直接粘进 Supabase，报错只会指向某一行，很难看出是难度越界。
 
 ## 技术栈
 
