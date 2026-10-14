@@ -103,6 +103,19 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     Array<{ wordId: number; rating: ReviewRating }>
   >([]);
 
+  /**
+   * 正在「回顾」第几个词（null = 正常作答模式）。
+   *
+   * 【为什么单独一个 state，而不是直接把 index 往回移】
+   * index 是「作答指针」：它决定下一个要答的是谁、进度条走到哪、
+   * 什么时候算背完。
+   * 如果把它往回移，再点一次按钮就会把同一个词答第二遍 ——
+   * 复习次数、星级、下次时间全都会算错，数据就脏了。
+   *
+   * 所以回顾是**只读**的：单独记一个位置，只影响显示，不影响作答。
+   */
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+
   // 每个单词当前的学习进度。初始值由外面传进来（正式页面会用数据库里的真实进度）。
   const [progressMap, setProgressMap] = useState<Record<number, ReviewInput>>(
     () => {
@@ -117,6 +130,29 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (finished) return;
+
+      /*
+       * 左右方向键 = 往前 / 往后翻看。
+       * 在回顾模式下，空格和 1/2/3 都不作答（见下面的 return），
+       * 否则同一个词会被答第二遍。
+       */
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        const from = reviewIndex ?? index;
+        if (from > 0) setReviewIndex(from - 1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        if (reviewIndex === null) return;
+        // 翻回到作答位置就退出回顾模式
+        if (reviewIndex + 1 >= index) setReviewIndex(null);
+        else setReviewIndex(reviewIndex + 1);
+        return;
+      }
+
+      // 回顾模式下不改答案
+      if (reviewIndex !== null) return;
 
       // 空格 = 显示释义
       if (event.code === "Space" && !revealed) {
@@ -154,6 +190,16 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   }
 
   const currentItem = queue[index];
+
+  /*
+   * 实际要显示哪一个词。
+   * 回顾模式下显示 queue[reviewIndex]，否则就是当前要作答的那个。
+   * currentItem（作答目标）和 viewingItem（显示目标）刻意分开 ——
+   * 这样「往回看」永远不会影响「答到哪了」。
+   */
+  const viewingIndex = reviewIndex ?? index;
+  const viewingItem: StudyItem = queue[viewingIndex] ?? currentItem;
+  const isReviewing = reviewIndex !== null;
 
   // 全部背完时的总结
   if (finished) {
@@ -206,6 +252,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
               setAnsweredCount(0);
               setFeedback(null);
               setFeedbackStarDelta(0);
+              setReviewIndex(null);
             }}
             // 「进度保留」这四个字保留着：不然会以为点一下会把学过的东西清掉
             className="text-xs text-zinc-400 transition-colors hover:text-zinc-700"
@@ -218,7 +265,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   }
 
   const currentProgress =
-    progressMap[currentItem.word.id] ?? createInitialProgress();
+    progressMap[viewingItem.word.id] ?? createInitialProgress();
 
   /*
    * 用真实的复习算法，预先算出三个按钮各自的结果。
@@ -288,6 +335,8 @@ export function StudySession({ items, onRate }: StudySessionProps) {
    */
   function handleRate(rating: ReviewRating) {
     if (currentItem === undefined) return;
+    // 回顾模式下不作答 —— 那个词已经答过了，再答一次会把数据算错
+    if (reviewIndex !== null) return;
 
     const now = new Date();
     const before = progressMap[currentItem.word.id] ?? createInitialProgress();
@@ -337,6 +386,9 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     // 记录星级的变化量，显示在提示行末尾
     setFeedbackStarDelta(starsOf(after) - starsOf(before));
 
+    // 作答完自动退出回顾模式（正常流程不会停在回顾里，但防御一下）
+    setReviewIndex(null);
+
     // 立刻前进到下一个词；已经是最后一个就进入总结页
     const nextLength = queue.length + (willRequeue ? 1 : 0);
     if (index + 1 >= nextLength) {
@@ -358,19 +410,31 @@ export function StudySession({ items, onRate }: StudySessionProps) {
 
   /*
    * 进度按「队列」算，而不是按最开始那份词表算。
-   * 因为短间隔的词会被重新排进队列，队列是会长大的 —— 显示真实剩余量
-   * 比显示一个会跳动的总数更不容易让人困惑。
+   * 因为短间隔的词会被重新排进队列，队列是会长大的 ——
+   * 显示「第几个 / 共几个」比显示一个会跳动的剩余量更不容易让人困惑。
    */
-  const remainingCount = Math.max(0, queue.length - index);
   const progressPercent = Math.round((index / queue.length) * 100);
 
   return (
     <div className="space-y-4">
-      {/* ── 顶部：只放进度 ── */}
+      {/* ── 顶部：上一个 + 进度 ── */}
       <div className="flex items-center gap-3">
-        <span className="text-xs tabular-nums text-zinc-500">
-          {index + 1} / {queue.length}
-        </span>
+        <button
+          type="button"
+          onClick={() => {
+            const from = reviewIndex ?? index;
+            if (from > 0) setReviewIndex(from - 1);
+          }}
+          disabled={(reviewIndex ?? index) === 0}
+          title="看上一个（←）"
+          className={
+            "shrink-0 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors " +
+            "hover:bg-zinc-100 hover:text-zinc-900 " +
+            "disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+          }
+        >
+          ← 上一个
+        </button>
 
         <div
           role="progressbar"
@@ -386,16 +450,20 @@ export function StudySession({ items, onRate }: StudySessionProps) {
           />
         </div>
 
-        <span className="text-xs tabular-nums text-zinc-400">
-          还剩 {remainingCount}
+        <span className="shrink-0 text-xs tabular-nums text-zinc-400">
+          {isReviewing
+            ? `回顾 ${viewingIndex + 1}`
+            : `${index + 1} / ${queue.length}`}
         </span>
       </div>
 
       <WordCard
-        word={currentItem.word}
-        revealed={revealed}
+        word={viewingItem.word}
+        // 回顾时直接显示释义 —— 你往回翻就是想再看一眼意思，
+        // 再让你按一次空格是多余的
+        revealed={isReviewing || revealed}
         onReveal={() => setRevealed(true)}
-        isNew={currentItem.isNew}
+        isNew={viewingItem.isNew}
       />
 
       {/*
@@ -408,11 +476,31 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         <StarRating stars={starsOf(currentProgress)} />
       </div>
 
-      {revealed && (
-        <RatingButtons
-          onRate={(rating) => void handleRate(rating)}
-          hints={hints}
-        />
+      {isReviewing ? (
+        /*
+         * 回顾模式：只读。
+         *
+         * 刻意**不显示作答按钮** —— 这个词已经答过了，
+         * 再答一次会把复习次数、星级、下次时间全算错。
+         * 所以这里只给一个「回到当前」的出口。
+         */
+        <button
+          type="button"
+          onClick={() => setReviewIndex(null)}
+          className={
+            "flex w-full items-center justify-center rounded-lg border border-zinc-300 py-3 " +
+            "text-sm text-zinc-700 transition-colors hover:bg-zinc-50"
+          }
+        >
+          回到当前 →
+        </button>
+      ) : (
+        revealed && (
+          <RatingButtons
+            onRate={(rating) => void handleRate(rating)}
+            hints={hints}
+          />
+        )
       )}
 
       {/*
@@ -424,7 +512,7 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         aria-live="polite"
         className="flex min-h-[20px] items-center justify-center gap-2 text-center text-xs text-zinc-500"
       >
-        {pendingCount > 0 ? (
+        {isReviewing ? null : pendingCount > 0 ? (
           <span className="text-zinc-400">保存中</span>
         ) : feedback !== null ? (
           <>
