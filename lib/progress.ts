@@ -18,6 +18,7 @@
  * 表结构告诉了 TypeScript，所以下面每个查询的返回结果都是自动推断出来的，
  * 列名写错会直接编译不过。
  */
+import { cookies } from "next/headers";
 import { rankFocusWords, type FocusCandidate, type FocusWord } from "@/lib/focus";
 import {
   estimatePace,
@@ -41,6 +42,7 @@ import {
   type ProgressStats,
 } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
+import { moveResumeWordFirst, RESUME_COOKIE } from "@/lib/study-resume";
 import type { ReviewRating, Word } from "@/types";
 
 /** createClient() 是异步的，这里取出它返回的客户端类型，避免到处写 any */
@@ -250,17 +252,53 @@ export async function getStudyQueue(userId: string): Promise<{
 
   const newEntries = await getNewEntries(plan.newWordCount);
 
+  // 给每一项标上「这是新词还是复习词」，界面据此显示角标。
+  // 特意在这里标记，而不是让页面按排列顺序去猜 ——
+  // 万一以后调整了顺序，界面上的角标也不会悄悄变错。
+  const entries = [
+    ...dueEntries.map((entry) => ({ ...entry, isNew: false })),
+    ...newEntries.map((entry) => ({ ...entry, isNew: true })),
+  ];
+
+  /*
+   * 把「上次停在这个词」挪到最前面。
+   *
+   * 这样退出去是 book，回来第一个还是 book。
+   * 排序在**服务端**做（不是页面加载完再跳），所以不会闪一下才到位。
+   */
   return {
-    // 给每一项标上「这是新词还是复习词」，界面据此显示角标。
-    // 特意在这里标记，而不是让页面按排列顺序去猜 ——
-    // 万一以后调整了顺序，界面上的角标也不会悄悄变错。
-    entries: [
-      ...dueEntries.map((entry) => ({ ...entry, isNew: false })),
-      ...newEntries.map((entry) => ({ ...entry, isNew: true })),
-    ],
+    entries: moveResumeWordFirst(entries, await readResumeWordId()),
     reviewCount: dueEntries.length,
     newWordCount: newEntries.length,
   };
+}
+
+/**
+ * 读取「上次停在哪个词」。
+ *
+ * 存在 cookie 里而不是数据库：它只是**界面位置**，不是学习进度。
+ * 进度（复习次数、星级、下次时间）已经老老实实存在数据库里了。
+ *
+ * 放 cookie 的好处是服务端也读得到，因此可以在**返回队列之前**
+ * 就把它排到第一位 —— 页面一打开就是那个词，不需要等前端再跳一下。
+ *
+ * 代价是按设备记：手机和电脑各记各的。这其实更合理 ——
+ * 手机上背到哪，就接着手机那个位置。
+ */
+async function readResumeWordId(): Promise<number | null> {
+  try {
+    const store = await cookies();
+    const raw = store.get(RESUME_COOKIE)?.value;
+    if (raw === undefined || raw === "") return null;
+
+    const id = Number(raw);
+    // 必须是正整数。cookie 是用户可以随手改的，
+    // 万一被改坏，宁可当作没有记录，也不能把队列搞乱。
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    // 不在请求上下文里时拿不到 cookie（比如被定时任务间接调用），当没有
+    return null;
+  }
 }
 
 /**

@@ -23,6 +23,10 @@ import {
   type ReviewInput,
 } from "@/lib/spaced-repetition";
 import {
+  RESUME_COOKIE,
+  RESUME_COOKIE_MAX_AGE_SECONDS,
+} from "@/lib/study-resume";
+import {
   RATING_LABELS,
   type ReviewRating,
   type SaveReviewResult,
@@ -180,6 +184,27 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     // 这里故意不写依赖数组：每次渲染都重新注册，
     // 这样监听函数里读到的永远是最新的 state，不会拿到旧值。
   });
+
+  /*
+   * 记住「我现在停在哪个词」。
+   *
+   * 写在 cookie 而不是数据库：它只是**界面位置**，不是学习进度 ——
+   * 进度（复习次数、星级、下次时间）已经存在数据库里了。
+   * 放 cookie 的好处是服务端也读得到，所以下次打开时会在
+   * **返回队列之前**就把它排到最前面，真正实现
+   * 「退出去是 book，回来还是 book」，而且不会闪一下才到位。
+   *
+   * 注意记的是 index（作答位置），不是 reviewIndex ——
+   * 你往回翻看的时候，恢复位置仍然应该是「你答到哪了」。
+   */
+  useEffect(() => {
+    const item = queue[index];
+    if (item === undefined) return;
+
+    document.cookie =
+      `${RESUME_COOKIE}=${item.word.id}; path=/; ` +
+      `max-age=${RESUME_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+  }, [queue, index]);
 
   if (queue.length === 0) {
     return (
