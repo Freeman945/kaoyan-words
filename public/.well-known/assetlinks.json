@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.kaoyan_words.twa",
+      "sha256_cert_fingerprints": [
+        "5E:7E:09:14:E3:F5:CD:53:CA:57:E9:0D:9A:FD:E0:B6:E3:21:AD:C0:6B:10:FC:CF:88:A6:2F:26:C3:B1:D2:6E"
+      ]
+    }
+  }
+]

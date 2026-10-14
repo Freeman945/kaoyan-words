@@ -73,6 +73,38 @@
 > 改完代码 `git push`，Vercel 会自动重新部署（约 1 分钟）。
 > 仓库：https://github.com/Freeman945/kaoyan-words
 
+### 安卓 APK（国内用这个，不要用 PWA 安装）
+
+**下载地址：** https://kaoyan-words.vercel.app/kaoyan-words.apk
+
+> **为什么不用 PWA 安装**：国内用 Chrome 点「安装应用」会永远卡在「正在安装」。
+> 因为 Chrome 不是简单做个图标，而是要去 **Google 的服务器「铸造」一个 WebAPK** ——
+> 国内连不上 Google，这个请求就一直挂着。开 VPN 也不一定管用。
+> 这是 Google 那一侧的限制，网站这边怎么改都没用。
+
+装的时候手机要允许「未知来源」。这个 APK 是一个 **TWA**（Trusted Web Activity）：
+本质上是个壳，打开后加载线上网站 ——
+所以**代码更新后你手机上自动就是新版**，不需要重新下载安装包。
+
+#### assetlinks.json 是干什么的
+
+安卓要确认「这个 App 确实属于这个网站」，才会去掉顶部那条地址栏。
+它靠的是这个文件：
+
+| 文件 | 作用 |
+| --- | --- |
+| `public/.well-known/assetlinks.json` | 安卓来取它做验证（包名 + 签名指纹） |
+| `public/kaoyan-words.apk` | 安装包本体 |
+
+> 🔴 **取这个文件时是未登录状态**，所以 `/.well-known` 必须在中间件的放行名单里
+> （`lib/supabase/proxy.ts` 的 `PUBLIC_PATHS`）。
+> 否则安卓拿到的是登录页 HTML，验证失败 → **地址栏永远去不掉，而且不报错**。
+
+> ⚠️ **签名密钥千万别丢**：`signing.keystore` 和 APK 原件放在
+> `D:\考研词记-安卓安装包\`（仓库外，避免被误提交）。
+> 以后想更新 App 必须用同一把密钥签名 —— 换了密钥，指纹就变了，
+> 地址栏会重新出现，手机上还会装成两个不同的 App。
+
 ## 词库
 
 现在的 40 个词是当初跑通流程用的**测试数据**（`data/words-seed.csv`），
