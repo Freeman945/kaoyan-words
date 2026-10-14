@@ -76,6 +76,17 @@ export async function GET(request: Request) {
   const today = localDateKey(now, DEFAULT_TIME_ZONE);
   const todayStart = `${today}T00:00:00${TIME_ZONE_OFFSET}`;
 
+  /*
+   * 测试模式：带上 ?force=1 就跳过「到点了吗 / 今天学了吗 / 今天发过了吗」
+   * 三个判断，直接发一封。
+   *
+   * 为什么需要它：真正的提醒只在晚上 10 点后发。如果配错了要等到 22 点
+   * 才发现，那中间几个小时都是瞎等。测试模式让你随时能验证整条链路。
+   * 它同样要求 CRON_SECRET，所以不会被别人拿来灌邮件。
+   * 主题会加 [测试] 前缀，免得和真提醒混淆；也不会写发送记录。
+   */
+  const force = new URL(request.url).searchParams.get("force") === "1";
+
   const { data: userPage, error: usersError } = await admin.auth.admin.listUsers({
     page: 1,
     perPage: 200,
@@ -106,11 +117,13 @@ export async function GET(request: Request) {
       .eq("user_id", user.id)
       .gte("reviewed_at", todayStart);
 
-    const shouldSend = shouldSendStudyReminder({
-      now,
-      reviewedToday: todayCount ?? 0,
-      alreadySentToday: (sentRows?.length ?? 0) > 0,
-    });
+    const shouldSend =
+      force ||
+      shouldSendStudyReminder({
+        now,
+        reviewedToday: todayCount ?? 0,
+        alreadySentToday: (sentRows?.length ?? 0) > 0,
+      });
 
     if (!shouldSend) {
       outcomes.push({ email, action: "skip" });
@@ -138,35 +151,40 @@ export async function GET(request: Request) {
     });
 
     // ③ 先占位再发。插不进去说明已经发过了（重试、并发都挡得住）
-    const { error: claimError } = await admin
-      .from("study_reminder_log")
-      .insert({ user_id: user.id, reminder_date: today });
+    // 测试模式不占位 —— 否则你只能测一次，之后就被「今天已发过」挡住
+    if (!force) {
+      const { error: claimError } = await admin
+        .from("study_reminder_log")
+        .insert({ user_id: user.id, reminder_date: today });
 
-    if (claimError !== null) {
-      outcomes.push({ email, action: "already-sent" });
-      continue;
+      if (claimError !== null) {
+        outcomes.push({ email, action: "already-sent" });
+        continue;
+      }
     }
 
     const result = await sendEmail({
       to: email,
-      subject: mail.subject,
+      subject: force ? `[测试] ${mail.subject}` : mail.subject,
       text: mail.text,
       html: mail.html,
     });
 
     if (!result.ok) {
-      // 发失败要撤掉占位，否则今天再也补发不了了
-      await admin
-        .from("study_reminder_log")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("reminder_date", today);
+      // 发失败要撤掉占位，否则今天再也补发不了了（测试模式本来就没占位）
+      if (!force) {
+        await admin
+          .from("study_reminder_log")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("reminder_date", today);
+      }
 
       outcomes.push({ email, action: "failed", detail: result.error });
       continue;
     }
 
-    outcomes.push({ email, action: "sent" });
+    outcomes.push({ email, action: force ? "sent(test)" : "sent" });
   }
 
   return NextResponse.json({ today, outcomes });
