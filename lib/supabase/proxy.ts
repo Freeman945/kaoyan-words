@@ -50,6 +50,22 @@ const PUBLIC_PATHS = [
    * 中间件的 matcher 已经排除了图片扩展名。
    */
   "/manifest.webmanifest",
+  /**
+   * .well-known 目录。
+   *
+   * 这个目录是「给机器看的公开文件」的约定位置，现在里面放的是
+   * assetlinks.json（安卓用来验证「这个 App 确实属于这个网站」，
+   * 没有它，打包成 APK 打开时会一直挂着一条地址栏）。
+   *
+   * 【为什么必须放行】
+   * 安卓在验证时是**未登录状态**去取这个文件的。如果被重定向到登录页，
+   * 它拿到的是一段 HTML，验证就失败 —— 表现是"APK 装上了但不像 App"，
+   * 同样不报任何错。
+   *
+   * 左边这两条 + /api/cron，是同一个教训的三次应用：
+   * **任何给机器（而不是给人）用的入口，都必须检查有没有被中间件拦掉。**
+   */
+  "/.well-known",
 ];
 
 function isPublicPath(pathname: string): boolean {
