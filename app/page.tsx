@@ -6,6 +6,9 @@ import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
 import { getFocusWords, getPace, getStats } from "@/lib/progress";
 import { suggestDailyNewWordGoal } from "@/lib/pace";
+import { DEFAULT_TIME_ZONE } from "@/lib/stats";
+import { weekdayIndex } from "@/lib/weekly-report";
+import { sendWeeklyReportIfDue } from "@/lib/weekly-report-send";
 import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
 
 export const metadata: Metadata = {
@@ -168,6 +171,33 @@ export default async function Home() {
     ]);
   } catch (cause) {
     errorMessage = cause instanceof Error ? cause.message : "读取统计失败。";
+  }
+
+  /*
+   * 周报：周末你打开网站时，把这周的情况发到你的邮箱。
+   *
+   * 【为什么是「打开网站时发」而不是定时任务】
+   * 定时任务跑起来的时候没有用户登录态，按 RLS 规则读不到你的数据 ——
+   * 除非动用 service_role 密钥。放在这里就能用你自己的登录态，
+   * 既安全，也不用配定时任务。
+   *
+   * 【为什么先判断是不是周末】
+   * 「这周发过没有」需要查一次数据库。工作日根本不会发，
+   * 先做这个纯计算判断，能省掉工作日每次打开首页的一次数据库往返。
+   *
+   * 【为什么用 try/catch 包住】
+   * 发周报失败绝不能连累首页打不开。邮件发不出去是小事，
+   * 背不了单词是大事。
+   */
+  if (
+    user.email !== undefined &&
+    weekdayIndex(new Date(), DEFAULT_TIME_ZONE) >= 5
+  ) {
+    try {
+      await sendWeeklyReportIfDue({ userId: user.id, email: user.email });
+    } catch (cause) {
+      console.error("[weekly-report] 发送周报时出错", cause);
+    }
   }
 
   // 用和背单词页面同一套函数来算今日任务，

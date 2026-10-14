@@ -10,7 +10,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildWeeklyReport,
+  daysElapsedInWeek,
+  isWeeklyReportDue,
   summarizeWeek,
+  weekdayIndex,
+  weekStartOf,
   type WeeklyReportData,
 } from "./weekly-report";
 
@@ -206,5 +210,87 @@ describe("summarizeWeek：把时间戳归到周一到周日", () => {
     const result = summarizeWeek([], [], weekStart, "Asia/Shanghai");
     assert.deepEqual(result.dailyReviewed, [0, 0, 0, 0, 0, 0, 0]);
     assert.deepEqual(result.dailyNewWords, [0, 0, 0, 0, 0, 0, 0]);
+  });
+});
+
+/**
+ * 2026-10-05 是周一，10-10 是周六，10-11 是周日。
+ * 下面全部围绕这一周测试。
+ */
+function beijing(day: string, hour = 10): Date {
+  return new Date(`2026-10-${day}T${String(hour).padStart(2, "0")}:00:00+08:00`);
+}
+
+describe("weekStartOf / weekdayIndex：算这一周的周一和星期几", () => {
+  it("周一本身的周一是它自己", () => {
+    assert.equal(weekStartOf(beijing("05"), "Asia/Shanghai"), "2026-10-05");
+    assert.equal(weekdayIndex(beijing("05"), "Asia/Shanghai"), 0);
+  });
+
+  it("周三的周一还是 10-05", () => {
+    assert.equal(weekStartOf(beijing("07"), "Asia/Shanghai"), "2026-10-05");
+    assert.equal(weekdayIndex(beijing("07"), "Asia/Shanghai"), 2);
+  });
+
+  it("周六是下标 5，周日是下标 6", () => {
+    assert.equal(weekdayIndex(beijing("10"), "Asia/Shanghai"), 5);
+    assert.equal(weekdayIndex(beijing("11"), "Asia/Shanghai"), 6);
+  });
+
+  it("周日的周一仍然是同一周的 10-05（周日算一周的最后一天）", () => {
+    assert.equal(weekStartOf(beijing("11"), "Asia/Shanghai"), "2026-10-05");
+  });
+
+  it("到了下周一，周一会跳到 10-12", () => {
+    const nextMonday = new Date("2026-10-12T10:00:00+08:00");
+    assert.equal(weekStartOf(nextMonday, "Asia/Shanghai"), "2026-10-12");
+  });
+});
+
+describe("isWeeklyReportDue：只在周末发，且一周只发一次", () => {
+  it("工作日不发", () => {
+    for (const day of ["05", "06", "07", "08", "09"]) {
+      assert.equal(
+        isWeeklyReportDue(beijing(day), "Asia/Shanghai", null),
+        false,
+        `${day} 号是工作日，不该发周报`,
+      );
+    }
+  });
+
+  it("周六、周日且本周没发过 → 该发", () => {
+    assert.equal(isWeeklyReportDue(beijing("10"), "Asia/Shanghai", null), true);
+    assert.equal(
+      isWeeklyReportDue(beijing("11"), "Asia/Shanghai", null),
+      true,
+    );
+  });
+
+  it("本周已经发过（记录里的周一是本周）→ 不再发", () => {
+    assert.equal(
+      isWeeklyReportDue(beijing("10"), "Asia/Shanghai", "2026-10-05"),
+      false,
+      "周六已经发过了，周日再打开网站不该再收到一封",
+    );
+    assert.equal(
+      isWeeklyReportDue(beijing("11"), "Asia/Shanghai", "2026-10-05"),
+      false,
+    );
+  });
+
+  it("上周发过的记录不会影响这一周", () => {
+    assert.equal(
+      isWeeklyReportDue(beijing("10"), "Asia/Shanghai", "2026-09-28"),
+      true,
+      "记录里是上周的，这一周应该照常发",
+    );
+  });
+});
+
+describe("daysElapsedInWeek：这一周已经过了几天", () => {
+  it("周一算出 1 天，周日算出 7 天", () => {
+    assert.equal(daysElapsedInWeek(beijing("05"), "Asia/Shanghai"), 1);
+    assert.equal(daysElapsedInWeek(beijing("10"), "Asia/Shanghai"), 6);
+    assert.equal(daysElapsedInWeek(beijing("11"), "Asia/Shanghai"), 7);
   });
 });

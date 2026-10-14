@@ -113,6 +113,21 @@ export type ReviewLogRow = {
 };
 
 /**
+ * weekly_report_log 表的一行：一次周报发送记录。
+ *
+ * 表上的唯一约束 (user_id, week_start) 是「一周只发一封」的保证，
+ * 所以这里不需要额外的去重逻辑。
+ * 建表语句：supabase/add-weekly-report-log.sql
+ */
+export type WeeklyReportLogRow = {
+  id: number;
+  user_id: string;
+  /** 这一封周报覆盖的那一周的周一（YYYY-MM-DD） */
+  week_start: string;
+  sent_at: string;
+};
+
+/**
  * 一次作答的保存结果。
  *
  * 【为什么用「返回对象」而不是「抛异常」表示失败】

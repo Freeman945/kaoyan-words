@@ -6,6 +6,7 @@
  * 这个文件只管前者：拿到一堆数字，组织成一封读得下去的周报。
  * 它是纯函数，所以能用固定数据测试 —— 不会因为邮件服务换了一家就失效。
  */
+import { DEFAULT_TIME_ZONE, localDateKey } from "./stats";
 
 export type WeeklyReportData = {
   /** 这一周的开始与结束日期（YYYY-MM-DD） */
@@ -260,4 +261,73 @@ export function summarizeWeek(
   }
 
   return { dailyReviewed, dailyNewWords };
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** 把 "YYYY-MM-DD" 换成「距 1970-01-01 的天数」，方便做星期运算 */
+function dayNumberFromKey(dateKey: string): number {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / MS_PER_DAY);
+}
+
+/** 反过来：把天数换回 "YYYY-MM-DD" */
+function keyFromDayNumber(dayNumber: number): string {
+  return new Date(dayNumber * MS_PER_DAY).toISOString().slice(0, 10);
+}
+
+/**
+ * 某个时刻所在这一周的周一（YYYY-MM-DD）。
+ *
+ * 用「周一」作为一周的起点，是因为周报要覆盖一整个自然周，
+ * 而星期一是最自然的开始。
+ */
+export function weekStartOf(
+  now: Date,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): string {
+  const dayNumber = dayNumberFromKey(localDateKey(now, timeZone));
+  // 1970-01-01 是周四，所以 (天数 + 3) % 7 = 距本周一过了几天
+  const daysSinceMonday = (dayNumber + 3) % 7;
+  return keyFromDayNumber(dayNumber - daysSinceMonday);
+}
+
+/** 星期几：0 = 周一 …… 5 = 周六，6 = 周日 */
+export function weekdayIndex(
+  now: Date,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): number {
+  return (dayNumberFromKey(localDateKey(now, timeZone)) + 3) % 7;
+}
+
+/**
+ * 现在该不该发周报？
+ *
+ * 规则（用户要的是「每周末」）：
+ *   1. 只在**周六或周日**发 —— 工作日打开网站不会突然收到周报
+ *   2. 这一周已经发过就不再发（靠 lastSentWeekStart 判断）
+ *
+ * @param lastSentWeekStart 上一次发送覆盖的那一周的周一；从没发过就传 null
+ */
+export function isWeeklyReportDue(
+  now: Date,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  lastSentWeekStart: string | null = null,
+): boolean {
+  const index = weekdayIndex(now, timeZone);
+  const isWeekend = index >= 5;
+  if (!isWeekend) return false;
+
+  return lastSentWeekStart !== weekStartOf(now, timeZone);
+}
+
+/**
+ * 这一周的哪几天已经过完了（周报只列到今天为止，
+ * 免得周六发的周报里周日那一行永远是 0，看着像漏了）。
+ */
+export function daysElapsedInWeek(
+  now: Date,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): number {
+  return weekdayIndex(now, timeZone) + 1;
 }

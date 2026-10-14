@@ -23,7 +23,12 @@
  * Supabase 的内部类型要求每张表都满足 Record<string, unknown>，
  * 所以这里（以及 types/index.ts）一律用 type。
  */
-import type { ReviewLogRow, Word, WordProgressRow } from "@/types";
+import type {
+  ReviewLogRow,
+  WeeklyReportLogRow,
+  Word,
+  WordProgressRow,
+} from "@/types";
 
 /**
  * 自增主键和时间戳都是数据库自动生成的，插入时可以不填。
@@ -94,6 +99,23 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+
+      /**
+       * 周报发送记录。
+       * 建表语句在 supabase/add-weekly-report-log.sql。
+       * 表上有一个唯一约束 (user_id, week_start)，用于保证「一周只发一封」。
+       */
+      weekly_report_log: {
+        Row: WeeklyReportLogRow;
+        Insert: WithGeneratedColumns<
+          WeeklyReportLogRow,
+          "id" | "sent_at"
+        >;
+        Update: Partial<
+          WithGeneratedColumns<WeeklyReportLogRow, "id" | "sent_at">
+        >;
+        Relationships: [];
       };
     };
 
