@@ -20,6 +20,12 @@
  */
 import { rankFocusWords, type FocusCandidate, type FocusWord } from "@/lib/focus";
 import {
+  estimatePace,
+  PACE_WINDOW_DAYS,
+  suggestDailyNewWordGoal,
+  type PaceEstimate,
+} from "@/lib/pace";
+import {
   createInitialProgress,
   scheduleNextReview,
   type ReviewInput,
@@ -27,7 +33,10 @@ import {
 import {
   buildDailyPlan,
   DEFAULT_TIME_ZONE,
+  localDateKey,
+  recentDateKeys,
   summarizeProgress,
+  type DailyCount,
   type ProgressStats,
 } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
@@ -160,13 +169,27 @@ export async function getStudyQueue(userId: string): Promise<{
   entries: Array<StudyQueueEntry & { isNew: boolean }>;
   reviewCount: number;
   newWordCount: number;
+  /** 今天安排了多少个新词（跟着你自己的节奏算出来的） */
+  dailyGoal: number;
 }> {
-  const dueEntries = await getDueEntries(userId);
-  const newWordsAvailable = await countNewWordsAvailable(userId);
+  // 这两个查询互不依赖，一起发出去更快
+  const [dueEntries, pace] = await Promise.all([
+    getDueEntries(userId),
+    getPace(userId),
+  ]);
+
+  /*
+   * 【这里就是「不直接要求每天背多少」的落点】
+   * 原来是写死的「每天 20 个新词」，现在是看你最近两周平均每天
+   * 实际背了多少，就照那个量给你安排（并限制在 5~60 之间）。
+   * 你背得少，它不会逼你；你背得多，它也不会拖后腿。
+   */
+  const dailyGoal = suggestDailyNewWordGoal(pace.avgPerDay);
 
   const plan = buildDailyPlan({
     dueCount: dueEntries.length,
-    newWordsAvailable,
+    newWordsAvailable: pace.remainingWords,
+    dailyNewWordGoal: dailyGoal,
   });
 
   const newEntries = await getNewEntries(plan.newWordCount);
@@ -181,6 +204,7 @@ export async function getStudyQueue(userId: string): Promise<{
     ],
     reviewCount: dueEntries.length,
     newWordCount: newEntries.length,
+    dailyGoal,
   };
 }
 
@@ -306,6 +330,71 @@ export async function getFocusWords(
   }));
 
   return rankFocusWords(candidates, new Date(), limit);
+}
+
+/**
+ * 估算学习节奏：最近两周平均每天新学多少词，按这个速度什么时候能背完。
+ *
+ * 【为什么用「进度记录的创建时间」算新词量】
+ * user_word_progress 里每多一行，就代表你第一次学了一个新词，
+ * 而 created_at 正是那一刻。所以按天统计这些行的数量，
+ * 就是「你每天真正新学了多少个词」—— 不用额外记日志。
+ */
+export async function getPace(userId: string): Promise<
+  PaceEstimate & { dailyNewWords: DailyCount[]; remainingWords: number }
+> {
+  const supabase = await createClient();
+  const now = new Date();
+
+  const since = new Date(
+    now.getTime() - PACE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const [newWordRows, allWords, learnedWords] = await Promise.all([
+    supabase
+      .from("user_word_progress")
+      .select("created_at")
+      .eq("user_id", userId)
+      .gte("created_at", since),
+    supabase.from("words").select("id", { count: "exact", head: true }),
+    supabase
+      .from("user_word_progress")
+      .select("word_id", { count: "exact", head: true })
+      .eq("user_id", userId),
+  ]);
+
+  if (newWordRows.error !== null) {
+    throw new Error(`读取学习节奏失败：${newWordRows.error.message}`);
+  }
+
+  const totalWords = allWords.count ?? 0;
+  const learnedCount = learnedWords.count ?? 0;
+  const remainingWords = Math.max(0, totalWords - learnedCount);
+
+  // 按「本地日期」统计每天新学了几个词
+  const countsByDate = new Map<string, number>();
+  for (const row of newWordRows.data ?? []) {
+    const key = localDateKey(new Date(row.created_at), DEFAULT_TIME_ZONE);
+    countsByDate.set(key, (countsByDate.get(key) ?? 0) + 1);
+  }
+
+  const dailyNewWords: DailyCount[] = recentDateKeys(
+    now,
+    PACE_WINDOW_DAYS,
+    DEFAULT_TIME_ZONE,
+  ).map((key) => ({
+    date: key,
+    label: key.slice(5).replace("-", "/"),
+    count: countsByDate.get(key) ?? 0,
+  }));
+
+  const estimate = estimatePace(
+    dailyNewWords.map((day) => day.count),
+    remainingWords,
+    now,
+  );
+
+  return { ...estimate, dailyNewWords, remainingWords };
 }
 
 /**

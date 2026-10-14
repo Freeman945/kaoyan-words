@@ -4,7 +4,8 @@ import { SetupNotice } from "@/components/SetupNotice";
 import { SignOutButton } from "@/components/SignOutButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import { getFocusWords, getStats } from "@/lib/progress";
+import { getFocusWords, getPace, getStats } from "@/lib/progress";
+import { suggestDailyNewWordGoal } from "@/lib/pace";
 import { buildDailyPlan, type DailyCount, type ProgressStats } from "@/lib/stats";
 
 export const metadata: Metadata = {
@@ -149,6 +150,7 @@ export default async function Home() {
   const user = await requireUser();
 
   let stats: StatsWithNewWords | null = null;
+  let pace: Awaited<ReturnType<typeof getPace>> | null = null;
   let errorMessage: string | null = null;
   /*
    * 重点词：从错误记录看最该盯的那些词。
@@ -158,20 +160,26 @@ export default async function Home() {
   let focusWords: Awaited<ReturnType<typeof getFocusWords>> = [];
 
   try {
-    stats = await getStats(user.id);
-    focusWords = await getFocusWords(user.id, 5);
+    // 三个查询互不依赖，一起发出去比一个个等快得多
+    [stats, pace, focusWords] = await Promise.all([
+      getStats(user.id),
+      getPace(user.id),
+      getFocusWords(user.id, 5),
+    ]);
   } catch (cause) {
     errorMessage = cause instanceof Error ? cause.message : "读取统计失败。";
   }
 
   // 用和背单词页面同一套函数来算今日任务，
   // 这样首页显示的「今天要背多少」和点进去看到的数量一定一致。
+  // 注意新词数量不再是写死的 20，而是跟着你的实际节奏算出来的。
   const plan =
-    stats === null
+    stats === null || pace === null
       ? null
       : buildDailyPlan({
           dueCount: stats.dueForReview,
           newWordsAvailable: stats.newWordsAvailable,
+          dailyNewWordGoal: suggestDailyNewWordGoal(pace.avgPerDay),
         });
 
   return (
@@ -188,7 +196,7 @@ export default async function Home() {
 
       {errorMessage !== null && <StatsError message={errorMessage} />}
 
-      {stats !== null && plan !== null && (
+      {stats !== null && pace !== null && plan !== null && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard
@@ -199,7 +207,7 @@ export default async function Home() {
             <StatCard
               label="今日新词"
               value={plan.newWordCount}
-              hint={`还剩 ${stats.newWordsAvailable} 个没学`}
+              hint="按你的节奏安排"
             />
             <StatCard
               label="已掌握"
@@ -217,6 +225,69 @@ export default async function Home() {
               ? `开始学习（${plan.total} 个词）`
               : "今天已经学完啦 · 进去看看"}
           </Link>
+
+          {/*
+            学习节奏与「什么时候能背完」。
+            这一段是这次改动的重点：不再拍脑袋定「每天必须背 20 个」，
+            而是观察你最近两周实际背了多少，再推算完成时间，
+            并对照考研日期告诉你来不来得及。
+          */}
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <p className="text-sm font-medium text-slate-900">
+              按你最近两周的节奏估算
+            </p>
+
+            {pace.avgPerDay > 0 ? (
+              <>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  最近 <strong className="text-slate-900">{pace.windowDays}</strong>{" "}
+                  天平均每天新学{" "}
+                  <strong className="text-slate-900">
+                    {pace.avgPerDay.toFixed(1)}
+                  </strong>{" "}
+                  个词
+                  {pace.activeDays < pace.windowDays && (
+                    <span className="text-slate-400">
+                      （{pace.windowDays} 天里有 {pace.activeDays} 天在学习，
+                      休息日也算进平均里）
+                    </span>
+                  )}
+                </p>
+
+                <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                  还剩{" "}
+                  <strong className="text-slate-900">{pace.remainingWords}</strong>{" "}
+                  个词没学，按这个节奏预计{" "}
+                  <strong className="text-slate-900">
+                    {pace.projectedFinishDate}
+                  </strong>{" "}
+                  背完
+                </p>
+
+                <p
+                  className={
+                    "mt-2 text-sm font-medium " +
+                    (pace.onTrack ? "text-emerald-700" : "text-rose-700")
+                  }
+                >
+                  距离 2028 考研还有 {pace.daysUntilExam} 天 ——{" "}
+                  {pace.onTrack
+                    ? "这个节奏来得及 ✓"
+                    : `按这个速度背不完，需要每天新学 ${pace.requiredPerDay} 个`}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  说明：新词数量不是硬性要求，是照着你的实际节奏安排的。
+                  想调整节奏，多背或少背几天，估算会自动跟着变。
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                还没有足够的学习记录。先背几天，我就能根据你的实际节奏
+                算出什么时候能背完、以及考试前来不来得及。
+              </p>
+            )}
+          </div>
 
           <WeeklyChart days={stats.last7Days} />
 

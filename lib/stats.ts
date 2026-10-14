@@ -125,6 +125,31 @@ export function calculateStreak(
 }
 
 /**
+ * 生成「最近 days 天」的日期键，从早到晚排列。
+ *
+ * 为什么统一放在这里：日期加减有夏令时的坑（某些时区一天不是 24 小时），
+ * 走 dayNumberFromKey 这套「整数天」运算才稳，不允许各处自己减 86400000。
+ */
+export function recentDateKeys(
+  now: Date,
+  days: number,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): string[] {
+  const today = dayNumberFromKey(localDateKey(now, timeZone));
+  const keys: string[] = [];
+
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    keys.push(keyFromDayNumber(today - offset));
+  }
+  return keys;
+}
+
+/** 把 "2026-10-12" 变成显示用的 "10/12" */
+function shortDateLabel(dateKey: string): string {
+  return `${Number(dateKey.slice(5, 7))}/${Number(dateKey.slice(8, 10))}`;
+}
+
+/**
  * 统计最近 7 天每天的学习量（按作答次数算）。
  * 返回 7 条，从最早到今天，方便直接画成柱状图。
  */
@@ -140,21 +165,11 @@ export function countLast7Days(
     countsByDate.set(key, (countsByDate.get(key) ?? 0) + 1);
   }
 
-  const today = dayNumberFromKey(localDateKey(now, timeZone));
-  const result: DailyCount[] = [];
-
-  // offset 从 6 递减到 0：先放 6 天前，最后放今天
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const key = keyFromDayNumber(today - offset);
-    result.push({
-      date: key,
-      // "2026-10-12" → "10/12"
-      label: `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`,
-      count: countsByDate.get(key) ?? 0,
-    });
-  }
-
-  return result;
+  return recentDateKeys(now, 7, timeZone).map((key) => ({
+    date: key,
+    label: shortDateLabel(key),
+    count: countsByDate.get(key) ?? 0,
+  }));
 }
 
 /**
