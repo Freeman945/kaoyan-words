@@ -18,6 +18,9 @@ import {
   describeReviewPlan,
   INITIAL_STARS,
   isDue,
+  isTemporarilyQuiet,
+  MASTERED_COOLDOWN_DAYS,
+  MASTERED_QUIET_STREAK,
   MASTERED_STREAK,
   MAX_IN_SESSION_REPEATS,
   MAX_STARS,
@@ -445,5 +448,103 @@ describe("星级熟练度（0~5 颗）", () => {
   it("starsOf 能从进度记录上直接取星级", () => {
     assert.equal(starsOf({ correct_count: 3, wrong_count: 1 }), 5);
     assert.equal(starsOf({ correct_count: 0, wrong_count: 0 }), 3);
+  });
+});
+
+/**
+ * 「连续两次满星就不再出现」。
+ *
+ * 规则由用户定：一个词连续两次都是 5 颗星，就暂时不考它了。
+ * 但这里有个必须处理的陷阱 —— 见下面「冷却期」那组测试。
+ */
+describe("isTemporarilyQuiet：满星且连击够的词暂时不考", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  /** 造一条「已满星」的进度：答对 3 次 = 5 颗星、连击 3 */
+  function mastered(overrides: Record<string, unknown> = {}) {
+    return {
+      correct_count: 3,
+      wrong_count: 0,
+      consecutive_correct: 3,
+      next_review_time: NOW.toISOString(),
+      ...overrides,
+    };
+  }
+
+  it("满星 + 连击够 + 刚到期 → 暂时不考", () => {
+    assert.equal(isTemporarilyQuiet(mastered(), NOW), true);
+  });
+
+  it("星级没到顶 → 照常考", () => {
+    assert.equal(
+      isTemporarilyQuiet(mastered({ correct_count: 1 }), NOW),
+      false,
+      "只有 4 颗星的词不该被跳过",
+    );
+  });
+
+  it("星级到顶但连击不够 → 照常考", () => {
+    // 答对 2 次就是 5 颗星（连击 2），但还差一次才算「连续两次满星」
+    assert.equal(
+      isTemporarilyQuiet(mastered({ correct_count: 2, consecutive_correct: 2 }), NOW),
+      false,
+    );
+  });
+
+  it("答错以后连击清零 → 立刻恢复正常复习", () => {
+    assert.equal(
+      isTemporarilyQuiet(
+        mastered({ correct_count: 10, wrong_count: 1, consecutive_correct: 0 }),
+        NOW,
+      ),
+      false,
+      "答错会把连击清零，这个词应该马上回到复习队列",
+    );
+  });
+
+  it("重要：答错一次不一定能让星级掉下 5 颗", () => {
+    // 答对很多次之后，3 + 答对 − 答错 仍然 ≥ 5（会被截断到 5）。
+    // 所以「解除静默」靠的是**连击清零**这一条，而不是星级下降 ——
+    // 这正是 MASTERED_QUIET_STREAK 这个条件不能省掉的原因。
+    assert.equal(
+      calculateStars(10, 1),
+      5,
+      "答对 10 次、答错 1 次，星级仍然是满的",
+    );
+  });
+
+  it("从没复习过（没有下次时间）→ 照常考", () => {
+    assert.equal(
+      isTemporarilyQuiet(mastered({ next_review_time: null }), NOW),
+      false,
+    );
+  });
+
+  describe("冷却期：这个功能唯一的风险点", () => {
+    it("逾期还没到冷却期 → 继续不考", () => {
+      const overdue = new Date(
+        NOW.getTime() - (MASTERED_COOLDOWN_DAYS - 1) * DAY,
+      ).toISOString();
+      assert.equal(
+        isTemporarilyQuiet(mastered({ next_review_time: overdue }), NOW),
+        true,
+      );
+    });
+
+    it("逾期超过冷却期 → 它自己会回来（否则就成了单向门）", () => {
+      const overdue = new Date(
+        NOW.getTime() - (MASTERED_COOLDOWN_DAYS + 1) * DAY,
+      ).toISOString();
+      assert.equal(
+        isTemporarilyQuiet(mastered({ next_review_time: overdue }), NOW),
+        false,
+        "再熟的词也不能永远不复习，记忆会退化",
+      );
+    });
+
+    it("冷却期正好是常量本身，不会出现负数或 NaN", () => {
+      assert.ok(MASTERED_COOLDOWN_DAYS > 0);
+      assert.ok(MASTERED_QUIET_STREAK >= 3, "门槛低于 3 会让新词刚满星就被跳过");
+    });
   });
 });

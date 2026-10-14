@@ -209,6 +209,62 @@ export function starsOf(progress: {
 }
 
 /**
+ * 连击到几次算「连续两次满星」。
+ *
+ * 推一遍就清楚了（新词 3 颗星起步）：
+ *   答对 1 次 → 4 颗，连击 1
+ *   答对 2 次 → 5 颗，连击 2   ← 第一次满星
+ *   答对 3 次 → 5 颗，连击 3   ← 第二次满星，从此进入「暂时不考」
+ * 所以门槛是连击 3 次。
+ */
+export const MASTERED_QUIET_STREAK = 3;
+
+/**
+ * 进入「暂时不考」之后，要冷多久。
+ *
+ * 这个数字是在两种需求之间取的折中：
+ *   - 太短（比如 1 天）→ 等于没生效，满星的词还是天天冒出来
+ *   - 太长（比如 180 天）→ 接近「永久不看」，而记忆会退化，
+ *     一个词半年不碰很可能已经忘了，等于白背
+ * 14 天（两周）：不烦你，但也不会让它彻底失联。
+ */
+export const MASTERED_COOLDOWN_DAYS = 14;
+
+const COOLDOWN_MS = MASTERED_COOLDOWN_DAYS * DAY_MS;
+
+/**
+ * 这个词现在是不是该「暂时不考」？
+ *
+ * 三个条件同时满足才是：
+ *   1. 星级已经到顶（5 颗）
+ *   2. 连击 ≥ 3（也就是「连续两次满星」）
+ *   3. 距离它该复习的时间还没超过冷却期
+ *
+ * 【为什么第 3 条必须有 —— 这是这个功能唯一的风险点】
+ * 如果只看前两条，这个词就永远不出现了。而它不出现，你就永远不会答错，
+ * 星级就永远不会掉，条件就永远成立 —— 变成一个单向门：
+ * 词从复习队列里彻底消失，然后慢慢忘光。
+ * 冷却期就是给这扇门装个自动回弹：逾期够久，它自己会回来。
+ */
+export function isTemporarilyQuiet(
+  progress: {
+    correct_count: number;
+    wrong_count: number;
+    consecutive_correct: number;
+    next_review_time: string | null;
+  },
+  now: Date = new Date(),
+): boolean {
+  if (starsOf(progress) < MAX_STARS) return false;
+  if (progress.consecutive_correct < MASTERED_QUIET_STREAK) return false;
+  if (progress.next_review_time === null) return false;
+
+  const overdueMs =
+    now.getTime() - new Date(progress.next_review_time).getTime();
+  return overdueMs < COOLDOWN_MS;
+}
+
+/**
  * 把「第几档」换算成实际间隔分钟数。
  * 超出范围就取最后一档（背得再熟也不会无限期拖下去）。
  */

@@ -27,6 +27,7 @@ import {
 } from "@/lib/pace";
 import {
   createInitialProgress,
+  isTemporarilyQuiet,
   scheduleNextReview,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
@@ -103,16 +104,32 @@ export async function getDueEntries(
     throw new Error(`读取今日复习队列失败：${error.message}`);
   }
 
-  return (data ?? []).map((row) => ({
-    word: row.words,
-    progress: {
-      familiarity: row.familiarity,
-      consecutive_correct: row.consecutive_correct,
-      review_count: row.review_count,
-      correct_count: row.correct_count,
-      wrong_count: row.wrong_count,
-    },
-  }));
+  const now = new Date();
+
+  return (
+    (data ?? [])
+      /*
+       * 「满星且连击够」的词暂时不考。
+       *
+       * 过滤放在这里而不是界面层，是为了让首页的「待复习」数字和
+       * 真正会出现在队列里的词一致 —— 否则首页说 87 个，
+       * 点进去只有 60 个，你会以为丢了 27 个。
+       *
+       * 注意：这不是永久不看。冷却期一过它会自己回来，
+       * 原因见 isTemporarilyQuiet 的注释。
+       */
+      .filter((row) => !isTemporarilyQuiet(row, now))
+      .map((row) => ({
+        word: row.words,
+        progress: {
+          familiarity: row.familiarity,
+          consecutive_correct: row.consecutive_correct,
+          review_count: row.review_count,
+          correct_count: row.correct_count,
+          wrong_count: row.wrong_count,
+        },
+      }))
+  );
 }
 
 /**
