@@ -5,8 +5,12 @@ import { StarRating } from "@/components/StarRating";
 import { TestReportButton } from "@/components/TestReportButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import { suggestDailyNewWordGoal } from "@/lib/pace";
-import { getFocusWords, getPace, getStats } from "@/lib/progress";
+import {
+  getFocusWords,
+  getPace,
+  getStats,
+  NEW_WORD_QUEUE_LIMIT,
+} from "@/lib/progress";
 import { calculateStars } from "@/lib/spaced-repetition";
 import { buildDailyPlan, DEFAULT_TIME_ZONE, type DailyCount, type ProgressStats } from "@/lib/stats";
 import { weekdayIndex } from "@/lib/weekly-report";
@@ -178,17 +182,17 @@ export default async function Home() {
     }
   }
 
-  const dailyGoal =
-    pace === null ? null : suggestDailyNewWordGoal(pace.avgPerDay);
-
-  // 和背单词页面用同一套函数算今日任务，保证两处数字一致
+  /*
+   * 今日要背多少：不设新词配额，可学的都给你（背到不想背就停）。
+   * 和背单词页面用同一套函数、同一个上限，保证两处数字一致。
+   */
   const plan =
-    stats === null || pace === null || dailyGoal === null
+    stats === null || pace === null
       ? null
       : buildDailyPlan({
           dueCount: stats.dueForReview,
           newWordsAvailable: stats.newWordsAvailable,
-          dailyNewWordGoal: dailyGoal,
+          dailyNewWordGoal: NEW_WORD_QUEUE_LIMIT,
         });
 
   return (
@@ -241,7 +245,6 @@ export default async function Home() {
               <Row label="已掌握" value={String(stats.masteredWords)} />
               <Row label="在学" value={String(stats.learningWords)} />
               <Row label="连续学习" value={`${stats.streakDays} 天`} />
-              <Row label="每日新词" value={String(dailyGoal)} />
               <Row
                 label="预计第一轮完成"
                 value={pace.projectedFinishDate ?? "—"}

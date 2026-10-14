@@ -22,7 +22,6 @@ import { rankFocusWords, type FocusCandidate, type FocusWord } from "@/lib/focus
 import {
   estimatePace,
   PACE_WINDOW_DAYS,
-  suggestDailyNewWordGoal,
   type PaceEstimate,
 } from "@/lib/pace";
 import {
@@ -48,6 +47,19 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 /** 一次最多排多少个待复习词（防止一轮太长，让人望而生畏） */
 const REVIEW_QUEUE_LIMIT = 100;
+
+/**
+ * 一轮最多取多少个新词。
+ *
+ * 【为什么不设「每日上限」】
+ * 用户的要求是「每天想背多少就背多少」。所以这里不按节奏算配额，
+ * 直接把可学的新词都给你，背到不想背就停。
+ *
+ * 这个数字只是技术保护，不是学习建议：万一以后词库有几千个词，
+ * 一次把几千条记录拉到页面上会让打开明显变慢。
+ * 200 个新词对一天来说远超现实（连续背要一两个小时），所以等同于不限。
+ */
+export const NEW_WORD_QUEUE_LIMIT = 200;
 
 /** 计算连续学习天数时往前看多少天（连续天数超过这个数就只显示到这个数） */
 const STREAK_WINDOW_DAYS = 180;
@@ -186,8 +198,6 @@ export async function getStudyQueue(userId: string): Promise<{
   entries: Array<StudyQueueEntry & { isNew: boolean }>;
   reviewCount: number;
   newWordCount: number;
-  /** 今天安排了多少个新词（跟着你自己的节奏算出来的） */
-  dailyGoal: number;
 }> {
   // 这两个查询互不依赖，一起发出去更快
   const [dueEntries, pace] = await Promise.all([
@@ -196,17 +206,17 @@ export async function getStudyQueue(userId: string): Promise<{
   ]);
 
   /*
-   * 【这里就是「不直接要求每天背多少」的落点】
-   * 原来是写死的「每天 20 个新词」，现在是看你最近两周平均每天
-   * 实际背了多少，就照那个量给你安排（并限制在 5~60 之间）。
-   * 你背得少，它不会逼你；你背得多，它也不会拖后腿。
+   * 【这里就是「每天想背多少就背多少」的落点】
+   * 原来会按你最近两周的平均节奏算一个「今日新词」配额（5~60 个）。
+   * 现在不设配额了：可学的新词都给你，背到不想背就停。
+   *
+   * 代价是首页不再有一个「今日任务量」的概念 —— 这是用户明确要的：
+   * 不要系统规定他每天背多少。
    */
-  const dailyGoal = suggestDailyNewWordGoal(pace.avgPerDay);
-
   const plan = buildDailyPlan({
     dueCount: dueEntries.length,
     newWordsAvailable: pace.remainingWords,
-    dailyNewWordGoal: dailyGoal,
+    dailyNewWordGoal: NEW_WORD_QUEUE_LIMIT,
   });
 
   const newEntries = await getNewEntries(plan.newWordCount);
@@ -221,7 +231,6 @@ export async function getStudyQueue(userId: string): Promise<{
     ],
     reviewCount: dueEntries.length,
     newWordCount: newEntries.length,
-    dailyGoal,
   };
 }
 
