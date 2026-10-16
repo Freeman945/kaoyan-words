@@ -138,7 +138,7 @@ export function buildWeeklyReport(data: WeeklyReportData): WeeklyReport {
   }
 
   lines.push("");
-  lines.push("—— 考研英语背单词");
+  lines.push("—— 考研词记");
 
   const text = lines.join("\n");
 

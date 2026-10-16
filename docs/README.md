@@ -1,9 +1,9 @@
 # 项目文档
 
-这套文档是写给**这个项目的作者本人**看的 —— 也就是你。目标不是"文档齐全"，而是
-**让你能自己看懂、能自己改**。
+这套文档主要是**给这个项目的作者本人**看的 —— 也就是你。
+目标不是"文档齐全"，而是**让你能自己看懂、能自己改**。
 
-代码是 AI 写的没关系，但你必须能回答："这个数字是从哪来的？"、"我点这个按钮之后
+代码是谁写的不重要，重要的是你能回答："这个数字是从哪来的？"、"我点这个按钮之后
 发生了什么？"。回答不了，项目就永远是个黑箱，你也不敢动它。
 
 ## 建议的阅读顺序
@@ -14,6 +14,7 @@
 | [02-页面是怎么显示出来的.md](02-页面是怎么显示出来的.md) | 为什么打开就能看到内容？为什么点按钮不用刷新？ | 好奇原理时 |
 | [03-出问题时怎么排查.md](03-出问题时怎么排查.md) | 白屏了 / 报错了 / 数字不对，从哪查起？ | 出问题时 |
 | [04-部署上线.md](04-部署上线.md) | 怎么发布到公网？要花多少钱？有哪些坑？ | 准备上线时 |
+| [05-完整手册.md](05-完整手册.md) | 部署、数据库、环境变量、算法细节、常见问题、开发阶段 | 要动手改或部署时 |
 
 ---
 
@@ -73,14 +74,18 @@
 
 | 我想…… | 去改这个文件 |
 | --- | --- |
-| 调整每天学多少个新词 | `lib/stats.ts` 里的 `DAILY_NEW_WORD_GOAL` |
-| 改复习间隔（比如 3 天改 5 天） | `lib/spaced-repetition.ts` 里的 `CORRECT_INTERVALS_DAYS` |
+| 改复习间隔（比如 5 分钟改 10 分钟） | `lib/spaced-repetition.ts` 里的 `REVIEW_INTERVALS_MINUTES` |
+| 改「满星静默」的冷却期（现在 14 天） | `lib/spaced-repetition.ts` 里的 `MASTERED_COOLDOWN_DAYS` |
+| 改「刚刚答过」的保护期（现在 30 分钟） | `lib/spaced-repetition.ts` 里的 `RECENT_ANSWER_GRACE_MINUTES` |
+| 改一轮最多取多少个新词 | `lib/progress.ts` 里的 `NEW_WORD_QUEUE_LIMIT` |
+| 改晚间提醒的时间（现在 22 点） | `lib/study-reminder.ts` 里的 `REMINDER_HOUR` |
+| 改考试日期（算「来不来得及」用的） | `lib/pace.ts` 里的 `EXAM_DATE_ISO` |
 | 改单词卡的样子 | `components/WordCard.tsx` |
 | 改三个按钮的文字或颜色 | `components/RatingButtons.tsx` |
 | 改首页显示哪些统计 | `app/page.tsx` + `lib/stats.ts` |
 | 加一个新页面 | 新建 `app/你的路径/page.tsx` |
 | 改数据库表结构 | `supabase/schema.sql`（改完要重新执行一次） |
-| 换词库 | `data/words-seed.csv` + `npm run import:words` |
+| 换词库 | `scripts/dictdata-to-csv.py`（顶部改 `BOOK_ID`） |
 | 改登录逻辑 | `app/auth/actions.ts` |
 
 ---

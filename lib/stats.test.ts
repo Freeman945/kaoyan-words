@@ -8,6 +8,7 @@ import {
   buildDailyPlan,
   calculateStreak,
   countLast7Days,
+  DEFAULT_NEW_WORD_LIMIT,
   localDateKey,
   summarizeProgress,
   type ProgressSummary,
@@ -240,11 +241,15 @@ describe("calculateStreak：连续学习天数", () => {
   });
 });
 
-describe("buildDailyPlan：今天这一轮背哪些词", () => {
-  it("复习词全排上，新词最多学设定个数", () => {
+describe("buildDailyPlan：这一轮背哪些词", () => {
+  it("复习词全排上，新词取兜底上限（调用方没指定 goal 时）", () => {
     const plan = buildDailyPlan({ dueCount: 12, newWordsAvailable: 100 });
     assert.equal(plan.reviewCount, 12);
-    assert.equal(plan.newWordCount, 20, "默认每天 20 个新词");
+    assert.equal(
+      plan.newWordCount,
+      DEFAULT_NEW_WORD_LIMIT,
+      "没传 goal 时用兜底值，不是「每天必须背这么多」",
+    );
     assert.equal(plan.total, 32);
   });
 

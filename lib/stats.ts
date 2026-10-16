@@ -209,22 +209,30 @@ export function summarizeProgress(
   };
 }
 
-/** 每天计划学多少个新词。想调节奏就改这一个数字。 */
-export const DAILY_NEW_WORD_GOAL = 20;
+/**
+ * 调用方没指定时，一轮最多取多少个新词。
+ *
+ * ⚠️ 这**不是**「每天必须背多少个」的配额 —— 那种配额已经废除了。
+ * 用户要的是「每天想背多少就背多少」，所以可学的词一次性都给。
+ * 这只是 buildDailyPlan 的兜底默认值：正式调用方（背单词页和首页）
+ * 都会显式把 NEW_WORD_QUEUE_LIMIT 传进来。
+ */
+export const DEFAULT_NEW_WORD_LIMIT = 20;
 
 /**
- * 决定今天这一轮要背哪些词。
+ * 决定这一轮要背哪些词。
  *
  * 规则很简单：
- *   - 所有到期的复习词都要背完（复习优先于学新词）
- *   - 新词最多学 DAILY_NEW_WORD_GOAL 个，词库不够就有多少学多少
+ *   - 所有到期的复习词都排上（复习优先于学新词）
+ *   - 新词最多 goal 个 —— 这个数字是「一次别拉太多」的技术上限，
+ *     不是要求你每天背多少
  */
 export function buildDailyPlan(input: {
   dueCount: number;
   newWordsAvailable: number;
   dailyNewWordGoal?: number;
 }): { reviewCount: number; newWordCount: number; total: number } {
-  const goal = input.dailyNewWordGoal ?? DAILY_NEW_WORD_GOAL;
+  const goal = input.dailyNewWordGoal ?? DEFAULT_NEW_WORD_LIMIT;
   const reviewCount = Math.max(0, input.dueCount);
   const newWordCount = Math.max(0, Math.min(input.newWordsAvailable, goal));
 
