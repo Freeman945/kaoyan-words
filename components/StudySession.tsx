@@ -206,6 +206,28 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       `max-age=${RESUME_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
   }, [queue, index]);
 
+  /*
+   * 切回页面时，自动把没保存成功的作答再试一次。
+   *
+   * 手机在后台会冻结页面，期间的请求可能被系统掐断。
+   * 等你切回来（visibilitychange → visible），网络基本已经恢复，
+   * 这时候重试成功率很高 —— 不用你记得去点那个「重试」按钮。
+   *
+   * 故意不写依赖数组：每次渲染都重新注册，
+   * 这样监听函数里读到的 failedSaves 永远是最新的。
+   */
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState !== "visible") return;
+      if (failedSaves.length === 0) return;
+      void retryFailedSaves();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  });
+
   if (queue.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500">
@@ -318,27 +340,65 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     );
   }
 
-  /** 把一次作答交给服务器保存。失败只记录，不阻塞界面。 */
+  /**
+   * 把一次作答交给服务器保存。失败只记录，不阻塞界面。
+   *
+   * ══════════ 自动重试 ══════════
+   * 手机上切出去看邮件、锁屏、切到别的 App，都会让正在飞的请求被系统掐断。
+   * 这类失败绝大多数是**暂时的** —— 等一秒再试就好了。
+   *
+   * 所以这里先自己重试两次，两次都失败才真的把「未保存」提示给你。
+   * 你不该为一次网络抖动去按按钮。
+   *
+   * 【重试为什么是安全的】
+   * 服务端有幂等保护（见 lib/progress.ts 里 saveReview 的第 0 步）：
+   * 即使第一次其实已经存进去了，重试也不会把它算成两次。
+   *
+   * 【什么样的失败不重试】
+   * `result.ok === false` 是业务层面的失败（比如登录过期、
+   * 表不存在），这种情况重试再多次也没用，直接报出来。
+   */
   async function persistRating(wordId: number, rating: ReviewRating) {
+    // 三次尝试：立刻、1 秒后、2 秒后
+    const delays = [0, 1000, 2000];
     setPendingCount((count) => count + 1);
+
     try {
-      const result = await onRate(wordId, rating);
-      if (!result.ok) {
-        markFailed(wordId, rating, result.error);
-        return;
+      for (let attempt = 0; attempt < delays.length; attempt += 1) {
+        const delay = delays[attempt];
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+
+        try {
+          const result = await onRate(wordId, rating);
+
+          if (result.ok) {
+            // 成功：把它从待重试列表里移掉
+            setFailedSaves((prev) =>
+              prev.filter(
+                (item) => !(item.wordId === wordId && item.rating === rating),
+              ),
+            );
+            return;
+          }
+
+          // 业务失败：重试没用，直接报
+          markFailed(wordId, rating, result.error);
+          return;
+        } catch (cause) {
+          // 网络层失败：还有重试机会就继续，最后一次才报
+          if (attempt === delays.length - 1) {
+            markFailed(
+              wordId,
+              rating,
+              cause instanceof Error
+                ? cause.message
+                : "保存失败，请检查网络。",
+            );
+          }
+        }
       }
-      // 成功：把它从待重试列表里移掉
-      setFailedSaves((prev) =>
-        prev.filter(
-          (item) => !(item.wordId === wordId && item.rating === rating),
-        ),
-      );
-    } catch (cause) {
-      markFailed(
-        wordId,
-        rating,
-        cause instanceof Error ? cause.message : "保存失败，请检查网络。",
-      );
     } finally {
       setPendingCount((count) => count - 1);
     }
@@ -562,29 +622,34 @@ export function StudySession({ items, onRate }: StudySessionProps) {
         保存失败提示。
         现在是「先翻页、后保存」，失败时没法把人拦在当场，
         所以必须明确说出来并让重试 —— 界面变快了，但不能因此悄悄丢数据。
+
+        失败原因单独一行、允许换行显示：
+        之前用 truncate 截断，手机上等于把错误信息藏了 ——
+        出问题时看不到原因，只能瞎猜。
       */}
       {failedSaves.length > 0 && (
         <div
           role="alert"
-          className="flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
         >
-          <span className="min-w-0 truncate">
-            {failedSaves.length} 个词未保存
-            {error !== null && (
-              <span className="ml-1 text-xs opacity-70">{error}</span>
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => void retryFailedSaves()}
-            disabled={pendingCount > 0}
-            className={
-              "shrink-0 rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white " +
-              "transition-colors hover:bg-rose-800 disabled:opacity-50"
-            }
-          >
-            {pendingCount > 0 ? "重试中" : "重试"}
-          </button>
+          <div className="flex items-center justify-between gap-3">
+            <span>{failedSaves.length} 个词未保存</span>
+            <button
+              type="button"
+              onClick={() => void retryFailedSaves()}
+              disabled={pendingCount > 0}
+              className={
+                "shrink-0 rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white " +
+                "transition-colors hover:bg-rose-800 disabled:opacity-50"
+              }
+            >
+              {pendingCount > 0 ? "重试中" : "重试"}
+            </button>
+          </div>
+
+          {error !== null && (
+            <p className="mt-1 text-xs break-words opacity-70">{error}</p>
+          )}
         </div>
       )}
     </div>

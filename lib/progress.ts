@@ -319,6 +319,47 @@ export async function saveReview(
   const supabase = await createClient();
   const userId = await requireCurrentUserId(supabase);
 
+  /*
+   * ══════════ 第 0 步：幂等保护 ══════════
+   *
+   * 【为什么需要它】
+   * 保存请求会出现「其实已经成功了，但前端没收到确认」的情况：
+   * 你切出去看邮件，手机把标签页挂起，回程的响应被系统掐断。
+   * 前端只能当成失败，于是弹出「重试」按钮。
+   *
+   * 可如果那笔数据其实已经写进去了，你再点重试 ——
+   * 复习次数会从 1 变 2、流水多一条、下次复习时间按错误的连击重算。
+   * （前端现在还会自动重试，不加保护就更容易踩到。）
+   *
+   * 做法：查最近 10 秒有没有「同一个词 + 同一个评分」的流水。
+   * 有，就说明这次作答已经存过了，直接当成功返回，不重复写。
+   *
+   * 窗口为什么取 10 秒这么短：既够覆盖网络重试，
+   * 又不会把「本轮重排」里同一个词隔一会儿再答一次误判成重复。
+   */
+  const { data: recentSameAnswer } = await supabase
+    .from("review_logs")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("word_id", wordId)
+    .eq("rating", rating)
+    .gte("reviewed_at", new Date(Date.now() - 10_000).toISOString())
+    .limit(1);
+
+  if (recentSameAnswer !== null && recentSameAnswer.length > 0) {
+    const { data: existingProgress } = await supabase
+      .from("user_word_progress")
+      .select("next_review_time")
+      .eq("user_id", userId)
+      .eq("word_id", wordId)
+      .maybeSingle();
+
+    return {
+      nextReviewTime:
+        existingProgress?.next_review_time ?? new Date().toISOString(),
+    };
+  }
+
   // ---- 1. 读当前进度 ----
   const { data: existing, error: readError } = await supabase
     .from("user_word_progress")
