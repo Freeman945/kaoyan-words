@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SetupNotice } from "@/components/SetupNotice";
 import { StarRating } from "@/components/StarRating";
-import { EXPORT_RANGE_OPTIONS } from "@/lib/attention-export";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
 import { getFocusWords } from "@/lib/progress";
@@ -57,21 +56,16 @@ export default async function FocusPage() {
         不然导出来的清单看起来会像随机挑的。
       */}
       <div className="mt-8 border-t border-zinc-200 pt-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-400">导出重点词</span>
-          {EXPORT_RANGE_OPTIONS.map((option) => (
-            <a
-              key={option.days}
-              href={`/api/export/attention?days=${option.days}`}
-              className={
-                "rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-600 " +
-                "transition-colors hover:bg-zinc-50 hover:text-zinc-900"
-              }
-            >
-              {option.days} 天
-            </a>
-          ))}
-        </div>
+        <Link
+          href="/print/attention?days=7"
+          className={
+            "flex items-center justify-between rounded-lg border border-zinc-300 px-4 py-3 " +
+            "text-sm text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+          }
+        >
+          <span>打印重点单词表</span>
+          <span className="text-zinc-400">→</span>
+        </Link>
 
         <p className="mt-2 text-xs text-zinc-400">
           判定：连续 3 次没答好，或 5 次低于 4 星

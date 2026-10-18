@@ -269,6 +269,25 @@ export default async function Home() {
             <WeeklyChart days={stats.last7Days} />
           </section>
 
+          {/*
+            打印重点单词表。
+            刻意**不放在「重点词」那一段里** ——
+            那一段是 `focusWords.length > 0` 才渲染的，
+            没有重点词时整段消失，手机用户就找不到入口了。
+          */}
+          <section className="border-t border-zinc-200 pt-6">
+            <Link
+              href="/print/attention?days=7"
+              className={
+                "flex items-center justify-between rounded-lg border border-zinc-300 px-4 py-3 " +
+                "text-sm text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+              }
+            >
+              <span>打印重点单词表</span>
+              <span className="text-zinc-400">→</span>
+            </Link>
+          </section>
+
           {/* ── 重点词 ── */}
           {focusWords.length > 0 && (
             <section className="border-t border-zinc-200 pt-6">
