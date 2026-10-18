@@ -18,6 +18,12 @@
  * 表结构告诉了 TypeScript，所以下面每个查询的返回结果都是自动推断出来的，
  * 列名写错会直接编译不过。
  */
+import {
+  clampExportDays,
+  judgeAttention,
+  type AttentionExportRow,
+  type AttentionLog,
+} from "@/lib/attention-export";
 import { cookies } from "next/headers";
 import { rankFocusWords, type FocusCandidate, type FocusWord } from "@/lib/focus";
 import {
@@ -464,6 +470,126 @@ export async function getFocusWords(
   }));
 
   return rankFocusWords(candidates, new Date(), limit);
+}
+
+/**
+ * 取「需要重点关注的单词」—— 用于导出成 CSV 拿到别处复习。
+ *
+ * 判定标准和纯逻辑都在 lib/attention-export.ts（25 个测试盯着），
+ * 这里只负责把数据捞出来喂给它。
+ *
+ * 两条查询：
+ *   1. 窗口内的作答流水（连带把单词本身也 join 出来）
+ *   2. 这些词的历史总计（答对/答错），用来反推窗口开始时的星级
+ */
+export async function getAttentionWords(
+  userId: string,
+  days: number,
+): Promise<AttentionExportRow[]> {
+  const supabase = await createClient();
+
+  const effectiveDays = clampExportDays(days);
+  const since = new Date(
+    Date.now() - effectiveDays * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const [logRows, progressRows] = await Promise.all([
+    supabase
+      .from("review_logs")
+      .select("word_id, rating, reviewed_at, words(word, phonetic, meaning)")
+      .eq("user_id", userId)
+      .gte("reviewed_at", since)
+      // 从早到晚，后面按词分组时顺序天然是对的（判定要靠顺序重放星级）
+      .order("reviewed_at", { ascending: true }),
+    supabase
+      .from("user_word_progress")
+      .select("word_id, correct_count, wrong_count")
+      .eq("user_id", userId),
+  ]);
+
+  if (logRows.error !== null) {
+    throw new Error(`读取作答记录失败：${logRows.error.message}`);
+  }
+
+  const progressById = new Map(
+    (progressRows.data ?? []).map((row) => [
+      row.word_id,
+      { correct: row.correct_count, wrong: row.wrong_count },
+    ]),
+  );
+
+  // 按单词分组（Map 会保留插入顺序，而插入顺序就是时间顺序）
+  const grouped = new Map<
+    number,
+    {
+      word: { word: string; phonetic: string | null; meaning: string };
+      logs: AttentionLog[];
+    }
+  >();
+
+  for (const row of logRows.data ?? []) {
+    const existing = grouped.get(row.word_id);
+    const log: AttentionLog = {
+      rating: row.rating,
+      reviewed_at: row.reviewed_at,
+    };
+
+    if (existing === undefined) {
+      grouped.set(row.word_id, {
+        word: {
+          word: row.words.word,
+          phonetic: row.words.phonetic,
+          meaning: row.words.meaning,
+        },
+        logs: [log],
+      });
+    } else {
+      existing.logs.push(log);
+    }
+  }
+
+  const results: AttentionExportRow[] = [];
+
+  for (const [wordId, group] of grouped) {
+    const progress = progressById.get(wordId);
+    // 没有进度记录的词理论上不该有流水，防御一下
+    if (progress === undefined) continue;
+
+    const verdict = judgeAttention({
+      word: group.word,
+      correctCount: progress.correct,
+      wrongCount: progress.wrong,
+      logs: group.logs,
+    });
+
+    if (!verdict.needsAttention) continue;
+
+    results.push({
+      word: group.word.word,
+      phonetic: group.word.phonetic,
+      meaning: group.word.meaning,
+      stars: verdict.stars,
+      windowAttempts: verdict.windowAttempts,
+      lastRatedAt: verdict.lastRatedAt,
+      reasons: verdict.reasons,
+    });
+  }
+
+  /*
+   * 排序：最该看的排最前面
+   *   1. 星级低的优先（2 星比 3 星更该看）
+   *   2. 同星级时，这段时间答得多的优先（问题暴露得更充分）
+   *   3. 再相同就按字母序，保证每次导出的顺序稳定
+   */
+  results.sort((a, b) => {
+    if (a.stars !== b.stars) return a.stars - b.stars;
+    if (b.windowAttempts !== a.windowAttempts) {
+      return b.windowAttempts - a.windowAttempts;
+    }
+    return a.word.localeCompare(b.word);
+  });
+
+  return results;
 }
 
 /**
