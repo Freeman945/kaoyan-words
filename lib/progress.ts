@@ -40,6 +40,7 @@ import {
 } from "@/lib/spaced-repetition";
 import {
   buildDailyPlan,
+  DAILY_REVIEW_LIMIT,
   DEFAULT_TIME_ZONE,
   localDateKey,
   recentDateKeys,
@@ -54,21 +55,21 @@ import type { ReviewRating, Word } from "@/types";
 /** createClient() 是异步的，这里取出它返回的客户端类型，避免到处写 any */
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-/** 一次最多排多少个待复习词（防止一轮太长，让人望而生畏） */
-const REVIEW_QUEUE_LIMIT = 100;
-
 /**
- * 一轮最多取多少个新词。
+ * 一次最多取多少个待复习词。
  *
- * 【为什么不设「每日上限」】
- * 用户的要求是「每天想背多少就背多少」。所以这里不按节奏算配额，
- * 直接把可学的新词都给你，背到不想背就停。
+ * 【这里做过一次重要修正】
+ * 原来这里是 100 —— 一个「防止一轮太长」的拍脑袋数字，
+ * 而首页显示的「待复习」是**没有上限的真实欠账**（曾经到 993）。
+ * 于是出现两个问题：
+ *   1. 首页说 993，点进去只给 100，数字对不上，像是丢了词
+ *   2. 每天欠 993 个，永远追不上，看着就不想打开
  *
- * 这个数字只是技术保护，不是学习建议：万一以后词库有几千个词，
- * 一次把几千条记录拉到页面上会让打开明显变慢。
- * 200 个新词对一天来说远超现实（连续背要一两个小时），所以等同于不限。
+ * 现在统一由 lib/stats.ts 的 DAILY_REVIEW_LIMIT 决定：
+ * 每天排最该复习的 150 个，剩下的留在队列里明天优先。
+ * 首页和背单词页用的是同一个数字，不会再不一致。
  */
-export const NEW_WORD_QUEUE_LIMIT = 200;
+const REVIEW_QUEUE_LIMIT = DAILY_REVIEW_LIMIT;
 
 /** 计算连续学习天数时往前看多少天（连续天数超过这个数就只显示到这个数） */
 const STREAK_WINDOW_DAYS = 180;
@@ -243,17 +244,22 @@ export async function getStudyQueue(userId: string): Promise<{
   ]);
 
   /*
-   * 【这里就是「每天想背多少就背多少」的落点】
-   * 原来会按你最近两周的平均节奏算一个「今日新词」配额（5~60 个）。
-   * 现在不设配额了：可学的新词都给你，背到不想背就停。
+   * 每天排多少、学多少，全由 buildDailyPlan 决定。
    *
-   * 代价是首页不再有一个「今日任务量」的概念 —— 这是用户明确要的：
-   * 不要系统规定他每天背多少。
+   * 【这里改过两次，记录一下为什么】
+   * 最初：按最近两周的平均节奏算一个「今日新词」配额（5~60 个）。
+   * 然后：用户说「不要系统规定我每天背多少」→ 废掉配额，可学的词全给。
+   * 现在：用户说「一天要背一千多个单词很离谱」→ 重新加回上限，
+   *       但和最开始不一样：
+   *         · 复习优先，有明确上限（DAILY_REVIEW_LIMIT）
+   *         · 复习排满就**不学新词**（最开始那套是反过来的）
+   *         · 排不下的复习词不丢，明天优先
+   *
+   * 教训：「不设上限」在小词量时是自由，在词量上来后就是灾难。
    */
   const plan = buildDailyPlan({
     dueCount: dueEntries.length,
     newWordsAvailable: pace.remainingWords,
-    dailyNewWordGoal: NEW_WORD_QUEUE_LIMIT,
   });
 
   const newEntries = await getNewEntries(plan.newWordCount);

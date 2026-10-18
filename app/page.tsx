@@ -5,12 +5,7 @@ import { StarRating } from "@/components/StarRating";
 import { TestReportButton } from "@/components/TestReportButton";
 import { requireUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
-import {
-  getFocusWords,
-  getPace,
-  getStats,
-  NEW_WORD_QUEUE_LIMIT,
-} from "@/lib/progress";
+import { getFocusWords, getPace, getStats } from "@/lib/progress";
 import { calculateStars } from "@/lib/spaced-repetition";
 import { buildDailyPlan, DEFAULT_TIME_ZONE, type DailyCount, type ProgressStats } from "@/lib/stats";
 import { weekdayIndex } from "@/lib/weekly-report";
@@ -183,8 +178,11 @@ export default async function Home() {
   }
 
   /*
-   * 今日要背多少：不设新词配额，可学的都给你（背到不想背就停）。
-   * 和背单词页面用同一套函数、同一个上限，保证两处数字一致。
+   * 今日要背多少。
+   *
+   * 复习优先、有上限（DAILY_REVIEW_LIMIT）：排不下的一律留在队列里明天优先。
+   * 和背单词页面用同一个函数，保证两处数字一致 ——
+   * 之前首页显示 993、点进去只给 100，就是这个不一致造成的。
    */
   const plan =
     stats === null || pace === null
@@ -192,7 +190,6 @@ export default async function Home() {
       : buildDailyPlan({
           dueCount: stats.dueForReview,
           newWordsAvailable: stats.newWordsAvailable,
-          dailyNewWordGoal: NEW_WORD_QUEUE_LIMIT,
         });
 
   return (
@@ -230,6 +227,18 @@ export default async function Home() {
             >
               {plan.total > 0 ? "开始学习" : "今日已完成"}
             </Link>
+
+            {/*
+              还有多少复习词在排队。
+              必须显示 —— 否则你会以为「待复习 150」就是全部欠账，
+              过几天发现数字一直不小，反而更困惑。
+              但它不参与「今日合计」，因为你今天确实不用背它们。
+            */}
+            {plan.backlog > 0 && (
+              <p className="mt-3 text-xs text-zinc-400">
+                另有 {plan.backlog} 个复习词在排队，明天优先
+              </p>
+            )}
           </section>
 
           {/* ── 进度 ── */}

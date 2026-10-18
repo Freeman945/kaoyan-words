@@ -20,8 +20,7 @@
  */
 import { NextResponse } from "next/server";
 import { isEmailConfigured, sendEmail } from "@/lib/email";
-import { suggestDailyNewWordGoal } from "@/lib/pace";
-import { getPace, getStats } from "@/lib/progress";
+import { getStats } from "@/lib/progress";
 import { buildDailyPlan, DEFAULT_TIME_ZONE, localDateKey } from "@/lib/stats";
 import {
   buildStudyReminderEmail,
@@ -132,15 +131,11 @@ export async function GET(request: Request) {
 
     // 复用界面那套统计，保证邮件里的数字和首页看到的一致。
     // 第二个参数是管理员客户端 —— 定时任务没有登录态，只能用这个。
-    const [stats, pace] = await Promise.all([
-      getStats(user.id, admin),
-      getPace(user.id, admin),
-    ]);
+    const stats = await getStats(user.id, admin);
 
     const plan = buildDailyPlan({
       dueCount: stats.dueForReview,
       newWordsAvailable: stats.newWordsAvailable,
-      dailyNewWordGoal: suggestDailyNewWordGoal(pace.avgPerDay),
     });
 
     const mail = buildStudyReminderEmail({

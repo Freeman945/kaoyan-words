@@ -210,35 +210,72 @@ export function summarizeProgress(
 }
 
 /**
- * 调用方没指定时，一轮最多取多少个新词。
+ * 每天最多安排多少个复习词。
  *
- * ⚠️ 这**不是**「每天必须背多少个」的配额 —— 那种配额已经废除了。
- * 用户要的是「每天想背多少就背多少」，所以可学的词一次性都给。
- * 这只是 buildDailyPlan 的兜底默认值：正式调用方（背单词页和首页）
- * 都会显式把 NEW_WORD_QUEUE_LIMIT 传进来。
+ * ══════════════════════════════════════════════════════════════
+ * 【为什么需要一个上限 —— 来自用户的反馈】
+ * 「你不觉得这个我一天要背一千多个单词很离谱吗」
+ *
+ * 用户当时首页显示：待复习 993 + 新词 200 = 1193。
+ *
+ * 这不是 bug，是数学：1000 个词在学，每个词的下次复习间隔
+ * 前面几档是 1 天、2 天、4 天…… 1000 ÷ 平均 1~2 天
+ * = 每天 500~1000 个到期。
+ *
+ * 但「到期」不等于「今天必须全部背完」。
+ * 稍微晚一两天复习，对记忆的影响远小于
+ * 「看到 1193 就不想打开这个网站」的代价。
+ *
+ * 所以每天只排 150 个最该复习的（到期最早的优先），
+ * 剩下的留在队列里，明天优先 —— 和 Anki 的「每日复习上限」
+ * 是同一个思路。
+ *
+ * 想加量就改这个数字。150 个大约 20~25 分钟。
+ * ══════════════════════════════════════════════════════════════
  */
-export const DEFAULT_NEW_WORD_LIMIT = 20;
+export const DAILY_REVIEW_LIMIT = 150;
 
 /**
- * 决定这一轮要背哪些词。
+ * 每天最多学多少个新词。
  *
- * 规则很简单：
- *   - 所有到期的复习词都排上（复习优先于学新词）
- *   - 新词最多 goal 个 —— 这个数字是「一次别拉太多」的技术上限，
- *     不是要求你每天背多少
+ * 只在复习没排满的时候才给 —— 复习都排满了还往队列里塞新词，
+ * 欠的只会越滚越多。
+ */
+export const DAILY_NEW_LIMIT = 40;
+
+/**
+ * 决定今天这一轮要背哪些词。
+ *
+ * 规则：
+ *   - 复习优先：先排到期的词，最多 DAILY_REVIEW_LIMIT 个
+ *   - 复习排满了 → 今天不学新词（先把欠的还上）
+ *   - 复习没排满 → 补新词，最多 DAILY_NEW_LIMIT 个
+ *
+ * 排不下的复习词不会被丢掉，只是留在队列里明天优先 ——
+ * 这也是「今天只背 150 个」不会让学习计划崩掉的原因。
  */
 export function buildDailyPlan(input: {
   dueCount: number;
   newWordsAvailable: number;
-  dailyNewWordGoal?: number;
-}): { reviewCount: number; newWordCount: number; total: number } {
-  const goal = input.dailyNewWordGoal ?? DEFAULT_NEW_WORD_LIMIT;
-  const reviewCount = Math.max(0, input.dueCount);
-  const newWordCount = Math.max(0, Math.min(input.newWordsAvailable, goal));
+}): {
+  reviewCount: number;
+  newWordCount: number;
+  total: number;
+  /** 今天排不下的复习词，明天优先 */
+  backlog: number;
+} {
+  const pending = Math.max(0, input.dueCount);
+  const reviewCount = Math.min(pending, DAILY_REVIEW_LIMIT);
+
+  const newWordCount =
+    reviewCount >= DAILY_REVIEW_LIMIT
+      ? 0
+      : Math.max(0, Math.min(input.newWordsAvailable, DAILY_NEW_LIMIT));
 
   return {
     reviewCount,
     newWordCount,
     total: reviewCount + newWordCount,
+    backlog: pending - reviewCount,
   };
 }

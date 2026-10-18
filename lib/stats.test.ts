@@ -8,7 +8,8 @@ import {
   buildDailyPlan,
   calculateStreak,
   countLast7Days,
-  DEFAULT_NEW_WORD_LIMIT,
+  DAILY_NEW_LIMIT,
+  DAILY_REVIEW_LIMIT,
   localDateKey,
   summarizeProgress,
   type ProgressSummary,
@@ -242,15 +243,58 @@ describe("calculateStreak：连续学习天数", () => {
 });
 
 describe("buildDailyPlan：这一轮背哪些词", () => {
-  it("复习词全排上，新词取兜底上限（调用方没指定 goal 时）", () => {
+  it("复习词少的时候，排上复习 + 补新词", () => {
     const plan = buildDailyPlan({ dueCount: 12, newWordsAvailable: 100 });
     assert.equal(plan.reviewCount, 12);
+    assert.equal(plan.newWordCount, DAILY_NEW_LIMIT);
+    assert.equal(plan.total, 12 + DAILY_NEW_LIMIT);
+    assert.equal(plan.backlog, 0, "没有排不下的复习词");
+  });
+
+  it("复习词超过上限时，只排上限那么多，剩下的记成 backlog", () => {
+    /*
+     * 这是用户反馈「一天要背一千多个单词很离谱」的修复点：
+     * 993 个到期不该一次性全塞给用户，只排 DAILY_REVIEW_LIMIT 个，
+     * 其余留在队列里明天优先。
+     */
+    const plan = buildDailyPlan({ dueCount: 993, newWordsAvailable: 200 });
+
+    assert.equal(plan.reviewCount, DAILY_REVIEW_LIMIT);
+    assert.equal(plan.backlog, 993 - DAILY_REVIEW_LIMIT);
+    assert.ok(
+      plan.total <= DAILY_REVIEW_LIMIT,
+      `今日合计不该超过上限，实际 ${plan.total}`,
+    );
+  });
+
+  it("复习排满时不学新词（先把欠的还上）", () => {
+    const plan = buildDailyPlan({
+      dueCount: DAILY_REVIEW_LIMIT + 50,
+      newWordsAvailable: 200,
+    });
     assert.equal(
       plan.newWordCount,
-      DEFAULT_NEW_WORD_LIMIT,
-      "没传 goal 时用兜底值，不是「每天必须背这么多」",
+      0,
+      "复习都排满了还塞新词，欠的只会越滚越多",
     );
-    assert.equal(plan.total, 32);
+  });
+
+  it("复习刚好等于上限时，也不学新词", () => {
+    const plan = buildDailyPlan({
+      dueCount: DAILY_REVIEW_LIMIT,
+      newWordsAvailable: 200,
+    });
+    assert.equal(plan.reviewCount, DAILY_REVIEW_LIMIT);
+    assert.equal(plan.newWordCount, 0);
+    assert.equal(plan.backlog, 0);
+  });
+
+  it("差一个没到上限时，就开始补新词", () => {
+    const plan = buildDailyPlan({
+      dueCount: DAILY_REVIEW_LIMIT - 1,
+      newWordsAvailable: 200,
+    });
+    assert.equal(plan.newWordCount, DAILY_NEW_LIMIT);
   });
 
   it("词库不够时有多少学多少", () => {
@@ -264,19 +308,21 @@ describe("buildDailyPlan：这一轮背哪些词", () => {
     assert.equal(plan.total, 5);
   });
 
-  it("可以自定义每天的新词数量", () => {
-    const plan = buildDailyPlan({
-      dueCount: 0,
-      newWordsAvailable: 100,
-      dailyNewWordGoal: 5,
-    });
-    assert.equal(plan.newWordCount, 5);
-  });
-
   it("负数不会被算进来（防御性处理）", () => {
     const plan = buildDailyPlan({ dueCount: -3, newWordsAvailable: -1 });
     assert.equal(plan.reviewCount, 0);
     assert.equal(plan.newWordCount, 0);
     assert.equal(plan.total, 0);
+    assert.equal(plan.backlog, 0);
+  });
+
+  it("上限是正数，而且不至于离谱", () => {
+    assert.ok(DAILY_REVIEW_LIMIT > 0);
+    assert.ok(
+      DAILY_REVIEW_LIMIT <= 300,
+      "太大就回到「一天背一千个」的老问题了",
+    );
+    assert.ok(DAILY_NEW_LIMIT > 0);
+    assert.ok(DAILY_NEW_LIMIT <= DAILY_REVIEW_LIMIT);
   });
 });
