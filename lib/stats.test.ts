@@ -261,40 +261,57 @@ describe("buildDailyPlan：这一轮背哪些词", () => {
 
     assert.equal(plan.reviewCount, DAILY_REVIEW_LIMIT);
     assert.equal(plan.backlog, 993 - DAILY_REVIEW_LIMIT);
-    assert.ok(
-      plan.total <= DAILY_REVIEW_LIMIT,
-      `今日合计不该超过上限，实际 ${plan.total}`,
-    );
+    assert.equal(plan.total, DAILY_REVIEW_LIMIT + DAILY_NEW_LIMIT);
   });
 
-  it("复习排满时不学新词（先把欠的还上）", () => {
+  it("复习排满时，新词照样给", () => {
+    /*
+     * 这条钉住我第一版做错的地方。
+     * 第一版是「复习排满 → 新词 0」，结果用户欠着 843 个复习词时
+     * 首页显示「新词 0」，一周都碰不到新词。
+     * 用户原话：「搞笑吗，新词为0都来了」。
+     *
+     * 两个上限管两件事：复习上限管时间，新词上限管进度，不能互相掐。
+     */
     const plan = buildDailyPlan({
       dueCount: DAILY_REVIEW_LIMIT + 50,
       newWordsAvailable: 200,
     });
+    assert.equal(plan.reviewCount, DAILY_REVIEW_LIMIT);
     assert.equal(
       plan.newWordCount,
-      0,
-      "复习都排满了还塞新词，欠的只会越滚越多",
+      DAILY_NEW_LIMIT,
+      "复习再多，新词也不该被掐成 0",
     );
+    assert.equal(plan.total, DAILY_REVIEW_LIMIT + DAILY_NEW_LIMIT);
   });
 
-  it("复习刚好等于上限时，也不学新词", () => {
+  it("无论欠多少复习词，新词都不为 0", () => {
+    for (const due of [
+      0,
+      10,
+      DAILY_REVIEW_LIMIT - 1,
+      DAILY_REVIEW_LIMIT,
+      993,
+      5000,
+    ]) {
+      const plan = buildDailyPlan({ dueCount: due, newWordsAvailable: 200 });
+      assert.equal(
+        plan.newWordCount,
+        DAILY_NEW_LIMIT,
+        `待复习 ${due} 个时，新词不该是 0`,
+      );
+    }
+  });
+
+  it("复习刚好等于上限时，新词也是满的", () => {
     const plan = buildDailyPlan({
       dueCount: DAILY_REVIEW_LIMIT,
       newWordsAvailable: 200,
     });
     assert.equal(plan.reviewCount, DAILY_REVIEW_LIMIT);
-    assert.equal(plan.newWordCount, 0);
-    assert.equal(plan.backlog, 0);
-  });
-
-  it("差一个没到上限时，就开始补新词", () => {
-    const plan = buildDailyPlan({
-      dueCount: DAILY_REVIEW_LIMIT - 1,
-      newWordsAvailable: 200,
-    });
     assert.equal(plan.newWordCount, DAILY_NEW_LIMIT);
+    assert.equal(plan.backlog, 0);
   });
 
   it("词库不够时有多少学多少", () => {

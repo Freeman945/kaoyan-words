@@ -238,21 +238,33 @@ export const DAILY_REVIEW_LIMIT = 150;
 /**
  * 每天最多学多少个新词。
  *
- * 只在复习没排满的时候才给 —— 复习都排满了还往队列里塞新词，
- * 欠的只会越滚越多。
+ * ⚠️ 这个上限和 DAILY_REVIEW_LIMIT **互相独立**，绝对不要联动。
+ *
+ * 【我在这里犯过一次错，记下来免得再犯】
+ * 第一版写的是「复习排满了就今天不学新词」—— 结果用户欠着 843 个
+ * 复习词时，首页显示「新词 0」，连续一周都碰不到新词。
+ * 用户的原话：「搞笑吗，新词为0都来了」。
+ *
+ * 错在哪：这两个上限管的是**两件不同的事** ——
+ *   · DAILY_REVIEW_LIMIT 管「今天花多久」（时间预算）
+ *   · DAILY_NEW_LIMIT 管「进度别失控」（一次学太猛会全忘）
+ * 用前者去掐后者，等于让「还债」把「学新东西」挤没了，没有道理。
+ *
+ * Anki 也是分开的两个设置：Maximum new cards / Maximum reviews，
+ * 互不影响。
  */
 export const DAILY_NEW_LIMIT = 40;
 
 /**
  * 决定今天这一轮要背哪些词。
  *
- * 规则：
- *   - 复习优先：先排到期的词，最多 DAILY_REVIEW_LIMIT 个
- *   - 复习排满了 → 今天不学新词（先把欠的还上）
- *   - 复习没排满 → 补新词，最多 DAILY_NEW_LIMIT 个
+ * 规则（两个上限各管各的）：
+ *   - 复习：到期最早的优先，最多 DAILY_REVIEW_LIMIT 个
+ *   - 新词：最多 DAILY_NEW_LIMIT 个，词库不够就有多少学多少
+ *   - 合计 = 两者之和，这就是今天的实际工作量
  *
  * 排不下的复习词不会被丢掉，只是留在队列里明天优先 ——
- * 这也是「今天只背 150 个」不会让学习计划崩掉的原因。
+ * 这也是「每天只背 150 个复习」不会让计划崩掉的原因。
  */
 export function buildDailyPlan(input: {
   dueCount: number;
@@ -267,10 +279,11 @@ export function buildDailyPlan(input: {
   const pending = Math.max(0, input.dueCount);
   const reviewCount = Math.min(pending, DAILY_REVIEW_LIMIT);
 
-  const newWordCount =
-    reviewCount >= DAILY_REVIEW_LIMIT
-      ? 0
-      : Math.max(0, Math.min(input.newWordsAvailable, DAILY_NEW_LIMIT));
+  // 注意：这里**不**看 reviewCount。复习再多，新词该学还是学。
+  const newWordCount = Math.max(
+    0,
+    Math.min(input.newWordsAvailable, DAILY_NEW_LIMIT),
+  );
 
   return {
     reviewCount,
