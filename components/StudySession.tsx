@@ -23,6 +23,11 @@ import {
   type ReviewInput,
 } from "@/lib/spaced-repetition";
 import {
+  countWaiting,
+  insertDeferred,
+  nextPlayableIndex,
+} from "@/lib/session-queue";
+import {
   RESUME_COOKIE,
   RESUME_COOKIE_MAX_AGE_SECONDS,
 } from "@/lib/study-resume";
@@ -44,6 +49,20 @@ export type StudyItem = {
    * 用来防止「一直点不认识」导致它无限循环出现。
    */
   requeuedCount?: number;
+  /**
+   * 到这个毫秒时间戳之后，才允许它再次出现。
+   *
+   * 【为什么必须有这个字段】
+   * 原来的做法是「把间隔短的词重新塞回队尾」，那只保证「本轮还会再出现」，
+   * 不保证**真的隔了那么久**。队列短的时候，标着「5 分钟后」的词
+   * 20 秒后又冒出来了 —— 间隔形同虚设。
+   *
+   * 现在值来自 after.next_review_time（艾宾浩斯算出的真实间隔），
+   * 没到点就不许出现。具体判断在 lib/session-queue.ts 里（有测试）。
+   *
+   * undefined = 正常队列里的词，随时可以作答。
+   */
+  eligibleAt?: number;
 };
 
 type StudySessionProps = {
@@ -72,8 +91,13 @@ export function StudySession({ items, onRate }: StudySessionProps) {
    * 永远不会再出现 —— 只能等明天打开网站，那时已经逾期了，
    * 前三档等于白设。
    *
-   * 所以这里用一个「会变长的队列」：间隔很短的词，会被重新塞回队尾，
+   * 所以这里用一个「会变长的队列」：间隔很短的词，会被重新排进队列，
    * 在本轮里再考你一次。这才是艾宾浩斯曲线真正起作用的地方。
+   *
+   * 【队列结构的不变式】
+   *   [ 正常词（没有 eligibleAt，随时可答）
+   *   | 重新排队的词（有 eligibleAt，按到点时间升序） ]
+   * 排序保证在 lib/session-queue.ts 的 insertDeferred 里，有测试盯着。
    */
   const [queue, setQueue] = useState<StudyItem[]>(items);
   /** 正在后台同步的作答数量，用来显示「同步中…」 */
@@ -252,6 +276,12 @@ export function StudySession({ items, onRate }: StudySessionProps) {
   if (finished) {
     const newCount = items.filter((item) => item.isNew === true).length;
     const reviewCount = items.length - newCount;
+    /*
+     * 本轮是不是被「还没到点」截断的？
+     * 队列短的时候会出现：全背完了，但有几个标着「5 分钟后」的词还没到点。
+     * 不告诉用户一声，他会以为「怎么才背了几个就结束了」。
+     */
+    const waitingCount = countWaiting(queue, index + 1, Date.now());
 
     return (
       <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center">
@@ -277,6 +307,12 @@ export function StudySession({ items, onRate }: StudySessionProps) {
             <p className="mt-1 text-xs text-zinc-500">作答</p>
           </div>
         </div>
+
+        {waitingCount > 0 && (
+          <p className="mt-6 text-xs text-zinc-400">
+            还有 {waitingCount} 个词没到重来的时间，下次打开会继续
+          </p>
+        )}
 
         <div className="mt-10 flex flex-col items-center gap-3">
           <Link
@@ -452,15 +488,26 @@ export function StudySession({ items, onRate }: StudySessionProps) {
       alreadyRequeued,
     );
 
+    /*
+     * 重新排队时记下「到点时间」—— 直接用算法算出的下次复习时间。
+     *
+     * 这一步是「5 分钟就真的等 5 分钟」的关键：
+     * 以前只是把它放回队尾，队列短的时候几秒后就又出现了。
+     */
+    const eligibleAt = willRequeue
+      ? new Date(after.next_review_time).getTime()
+      : undefined;
+
+    let nextQueue = queue;
     if (willRequeue) {
-      setQueue((prev) => [
-        ...prev,
-        {
-          ...currentItem,
-          progress: after,
-          requeuedCount: alreadyRequeued + 1,
-        },
-      ]);
+      // insertDeferred 会把尾部按到点时间排好序（纯函数，有测试）
+      nextQueue = insertDeferred(queue, {
+        ...currentItem,
+        progress: after,
+        requeuedCount: alreadyRequeued + 1,
+        eligibleAt,
+      });
+      setQueue(nextQueue);
     }
 
     const gapLabel = describeInterval(now, new Date(after.next_review_time));
@@ -474,12 +521,19 @@ export function StudySession({ items, onRate }: StudySessionProps) {
     // 作答完自动退出回顾模式（正常流程不会停在回顾里，但防御一下）
     setReviewIndex(null);
 
-    // 立刻前进到下一个词；已经是最后一个就进入总结页
-    const nextLength = queue.length + (willRequeue ? 1 : 0);
-    if (index + 1 >= nextLength) {
+    /*
+     * 前进到下一个「现在就能作答」的词。
+     *
+     * 如果下一个是重新排队的词、但还没到点 —— 就结束本轮，
+     * 而不是让你盯着倒计时等。
+     * 那些词的 next_review_time 已经写进数据库了，
+     * 下次打开会正常进入复习（并且会出现在「待复习」里）。
+     */
+    const nextIndex = nextPlayableIndex(nextQueue, index + 1, Date.now());
+    if (nextIndex === -1) {
       setFinished(true);
     } else {
-      setIndex(index + 1);
+      setIndex(nextIndex);
       setRevealed(false);
     }
   }

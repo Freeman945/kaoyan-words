@@ -36,6 +36,7 @@ import {
   isTemporarilyQuiet,
   recentAnswerCutoff,
   scheduleNextReview,
+  starsOf,
   type ReviewInput,
 } from "@/lib/spaced-repetition";
 import {
@@ -50,6 +51,7 @@ import {
 } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 import { moveResumeWordFirst, RESUME_COOKIE } from "@/lib/study-resume";
+import { rankReviewCandidates, type ReviewCandidate } from "@/lib/word-selection";
 import type { ReviewRating, Word } from "@/types";
 
 /** createClient() 是异步的，这里取出它返回的客户端类型，避免到处写 any */
@@ -103,7 +105,11 @@ async function requireCurrentUserId(
 
 /**
  * 取今天该复习的词（next_review_time 已经到点的）。
- * 按「最该复习的排前面」排序，所以最早到期的先出现。
+ *
+ * 【顺序由谁决定】
+ * 数据库按 next_review_time 升序取 —— 但那只用来决定「取哪一批」
+ * （最逾期的 150 个必须进来），**最终顺序由概率算法重排**：
+ * 遗忘概率、错误率、逾期程度、星级一起算权重，见本函数后半段。
  */
 export async function getDueEntries(
   userId: string,
@@ -121,6 +127,11 @@ export async function getDueEntries(
       .select("*, words(*)")
       .eq("user_id", userId)
       .lte("next_review_time", now.toISOString())
+      /*
+       * 这个排序不再决定「先出现谁」，只决定「哪 150 个进来」——
+       * 越早到期的越优先进入这批候选，保证严重逾期的词不会因为
+       * 数量超过上限而被挤掉（饿死保护的第一层）。
+       */
       .order("next_review_time", { ascending: true })
       .limit(limit),
 
@@ -154,22 +165,68 @@ export async function getDueEntries(
     (recentResult.data ?? []).map((row) => row.word_id),
   );
 
-  return (
-    (dueResult.data ?? [])
-      /*
-       * 「满星且连击够」的词暂时不考。
-       *
-       * 过滤放在这里而不是界面层，是为了让首页的「待复习」数字和
-       * 真正会出现在队列里的词一致 —— 否则首页说 87 个，
-       * 点进去只有 60 个，你会以为丢了 27 个。
-       *
-       * 注意：这不是永久不看。冷却期一过它会自己回来，
-       * 原因见 isTemporarilyQuiet 的注释。
-       */
-      .filter((row) => !isTemporarilyQuiet(row, now))
-      // 刚刚答过的词，这次不进队列（见上面最近的作答记录的说明）
-      .filter((row) => !recentWordIds.has(row.word_id))
-      .map((row) => ({
+  /*
+   * 先过滤，再排序。
+   *
+   * 过滤放在排序前面，是因为「满星静默」和「刚刚答过」这两类词
+   * 根本不该参与权重计算 —— 让它们进来会白白摊薄其他词的权重。
+   */
+  const rows = (dueResult.data ?? [])
+    /*
+     * 「满星且连击够」的词暂时不考。
+     *
+     * 过滤放在这里而不是界面层，是为了让首页的「待复习」数字和
+     * 真正会出现在队列里的词一致 —— 否则首页说 87 个，
+     * 点进去只有 60 个，你会以为丢了 27 个。
+     *
+     * 注意：这不是永久不看。冷却期一过它会自己回来，
+     * 原因见 isTemporarilyQuiet 的注释。
+     */
+    .filter((row) => !isTemporarilyQuiet(row, now))
+    // 刚刚答过的词，这次不进队列（见上面最近的作答记录的说明）
+    .filter((row) => !recentWordIds.has(row.word_id));
+
+  /*
+   * ══════════ 概率出词：把「谁先出现」交给权重决定 ══════════
+   *
+   * 以前这里直接按 next_review_time 从早到晚返回，结果是：
+   * 一百个词同时逾期时，先出现谁由「谁的表更大」决定 ——
+   * 一个错过五次的词和一个从没错过的词，排序上毫无区别。
+   *
+   * 现在交给 lib/word-selection.ts：用遗忘概率、错误率、逾期程度、
+   * 星级算权重，再按「带确定性种子的加权抽样」排序。
+   *
+   * 为什么种子里带日期：同一天内刷新页面顺序不变（不会一刷新就乱），
+   * 但第二天会形成新的概率顺序 —— 否则每天的队列会一模一样。
+   */
+  const candidates: ReviewCandidate[] = rows.map((row) => ({
+    wordId: row.word_id,
+    lastReviewTime: row.last_review_time,
+    nextReviewTime: row.next_review_time,
+    reviewCount: row.review_count,
+    correctCount: row.correct_count,
+    wrongCount: row.wrong_count,
+    stars: starsOf(row),
+    /*
+     * 真题词频：当前词库没有这个字段（只有单词/音标/释义），
+     * 所以传 undefined → frequencyFactor 恒为 1。
+     * 以后有了可靠数据，在这里传 0~1 就会自动生效。
+     */
+    frequencyScore: undefined,
+  }));
+
+  const seed = `${userId}|${localDateKey(now, DEFAULT_TIME_ZONE)}`;
+  const ranked = rankReviewCandidates(candidates, now, seed);
+
+  // 排序结果只有 wordId，这里回表取完整的单词和进度
+  const rowByWordId = new Map(rows.map((row) => [row.word_id, row]));
+
+  return ranked.flatMap(({ candidate }) => {
+    const row = rowByWordId.get(candidate.wordId);
+    if (row === undefined) return [];
+
+    return [
+      {
         word: row.words,
         progress: {
           familiarity: row.familiarity,
@@ -178,8 +235,9 @@ export async function getDueEntries(
           correct_count: row.correct_count,
           wrong_count: row.wrong_count,
         },
-      }))
-  );
+      },
+    ];
+  });
 }
 
 /**

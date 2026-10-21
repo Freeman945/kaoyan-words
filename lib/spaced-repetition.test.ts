@@ -100,7 +100,9 @@ describe("复习阶梯本身", () => {
 });
 
 describe("点击「不认识」", () => {
-  it("5 分钟后重来，掌握程度归零，连击清零", () => {
+  // 注意：重来间隔是 AGAIN_INTERVAL_MINUTES = 1（1 分钟），
+  // 这条测试的名字以前错写成「5 分钟」，已按实际常量更正。
+  it(`${AGAIN_INTERVAL_MINUTES} 分钟后重来，掌握程度归零，连击清零`, () => {
     const result = scheduleNextReview(
       progressAfter({ familiarity: 2, consecutive_correct: 5 }),
       "again",

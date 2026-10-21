@@ -330,7 +330,12 @@ export function scheduleNextReview(
   };
 
   if (rating === "again") {
-    // 完全不会：连击归零，5 分钟后马上再来一次
+    /*
+     * 完全不会：连击归零，AGAIN_INTERVAL_MINUTES（= 1）分钟后马上再来一次。
+     *
+     * 这里注释以前错写成「5 分钟后」，和常量对不上 ——
+     * 已按实际常量更正。改的是注释，不是代码。
+     */
     return {
       ...base,
       familiarity: 0,
